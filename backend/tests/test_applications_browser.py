@@ -1,0 +1,97 @@
+import os
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from playwright.sync_api import expect, sync_playwright
+
+from app.db.session import session_factory
+from app.services.job_strategy_service import run_strategy_once
+from conftest import PASSWORD
+from test_applications import StrategyFixture, seed_resume
+from test_jobs import JD
+
+
+@pytest.mark.skipif(not os.getenv("CAREER_APPLICATION_BROWSER"), reason="Requires the isolated browser servers")
+def test_application_workspace_in_edge(register_account):
+    email, _ = register_account("求职执行验收")
+    seed_resume(email)
+    base = os.environ["CAREER_APPLICATION_BROWSER"].rstrip("/")
+    appointment = (datetime.now(UTC) + timedelta(days=2)).replace(second=0, microsecond=0)
+    with sync_playwright() as runner:
+        channel = os.getenv("CAREER_BROWSER_CHANNEL")
+        browser = runner.chromium.launch(**({"channel": channel} if channel else {}))
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.goto(base + "/application-workspace")
+        expect(page).to_have_url(base + "/login")
+        page.get_by_label("邮箱").fill(email)
+        page.get_by_label("密码").fill(PASSWORD)
+        page.get_by_role("button", name="登录", exact=True).click()
+        expect(page.get_by_role("heading", name="求职执行工作台")).to_be_visible()
+        tabs = page.get_by_role("navigation", name="求职执行视图")
+        tabs.get_by_role("link", name="岗位发现").click()
+        page.get_by_role("button", name="录入岗位").click()
+        page.get_by_label("岗位名称", exact=True).fill("合成 AI 产品实习")
+        page.get_by_label("公司名称", exact=True).fill("验收实验室")
+        page.get_by_label("招聘 JD", exact=True).fill(JD)
+        page.get_by_role("button", name="保存岗位").click()
+        page.get_by_role("button", name="收藏岗位").click()
+        expect(page.get_by_role("button", name="取消收藏")).to_be_visible()
+        tabs.get_by_role("link", name="岗位收藏").click()
+        page.get_by_role("button", name="合成 AI 产品实习 · 验收实验室").click()
+        page.get_by_role("link", name="定制此岗位简历").click()
+        page.get_by_role("button", name="预览候选段落").click()
+        page.get_by_label("版本名称").fill("验收定向版")
+        page.get_by_label("修改原因").fill("先呈现与岗位相关的段落")
+        page.get_by_role("button", name="上移段落 2").click()
+        page.get_by_label("我确认这些段落准确反映我的经历").check()
+        page.get_by_role("button", name="确认并保存版本").click()
+        expect(page.get_by_role("heading", name="验收定向版 v1")).to_be_visible()
+        tabs.get_by_role("link", name="岗位发现").click()
+        page.get_by_role("button", name="合成 AI 产品实习 · 验收实验室").click()
+        page.get_by_label("投递简历版本").select_option(label="验收定向版 v1")
+        page.get_by_role("button", name="添加至投递看板").click()
+        board = page.get_by_label("投递看板", exact=True)
+        card = board.get_by_role("article").filter(has_text="合成 AI 产品实习")
+        card.drag_to(board.locator("section").filter(has=page.get_by_role("heading", name="已投递 0")))
+        expect(board.locator("section").filter(has=page.get_by_role("heading", name="已投递 1"))).to_contain_text("合成 AI 产品实习")
+        card.get_by_role("button").click()
+        page.get_by_label("更新投递状态").select_option("interview_1")
+        page.get_by_label("变更说明").fill("收到一面邀请")
+        page.get_by_role("button", name="保存状态").click()
+        expect(page.get_by_text("收到一面邀请")).to_be_visible()
+        page.reload()
+        expect(page.get_by_text("收到一面邀请")).to_be_visible()
+        page.get_by_role("link", name="查看投递简历").click()
+        expect(page.get_by_role("heading", name="验收定向版 v1")).to_be_visible()
+        page.go_back()
+        page.get_by_role("link", name="查看或添加面试").click()
+        page.get_by_label("面试开始时间").fill(appointment.isoformat()[:16])
+        page.get_by_label("时区", exact=True).fill("UTC")
+        page.get_by_label("UTC 偏移").fill("+00:00")
+        page.get_by_label("准备事项").fill("复述 SQL 的统计口径")
+        page.get_by_role("button", name="保存面试日程").click()
+        expect(page.get_by_text("准备事项 复述 SQL 的统计口径")).to_be_visible()
+        page.get_by_role("link", name="进入模拟面试").click()
+        expect(page.get_by_text("使用关联投递保存的 JD 和简历版本。")).to_be_visible()
+        page.get_by_role("button", name="核对面试准备").click()
+        page.get_by_role("button", name="创建面试").click()
+        expect(page.get_by_role("heading", name="合成 AI 产品实习 · 综合模拟")).to_be_visible()
+        page.goto(base + "/application-workspace?tab=analytics")
+        expect(page.get_by_text("面试邀请率 · 1/1 · 样本不足", exact=True)).to_be_visible()
+        page.get_by_role("navigation", name="求职执行视图").get_by_role("link", name="AI 策略").click()
+        page.get_by_role("button", name="预览策略分析数据").click()
+        with page.expect_response(lambda response: "/job-strategy/analyze" in response.url) as pending:
+            page.get_by_role("button", name="确认发送并分析").click()
+        response = pending.value
+        assert response.status == 202, response.text()
+        report_id = response.json()["id"]
+        assert run_strategy_once(session_factory(), StrategyFixture, report_id=report_id)
+        expect(page.get_by_text("补记笔试和面试结果", exact=True)).to_be_visible()
+        page.reload()
+        page.get_by_role("button", name="2000-01-01 至", exact=False).click()
+        expect(page.get_by_text("补记笔试和面试结果", exact=True)).to_be_visible()
+        page.set_viewport_size({"width": 820, "height": 900})
+        page.goto(base + "/application-workspace?tab=board")
+        expect(page.get_by_role("heading", name="投递管理看板")).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth === window.innerWidth")
+        browser.close()
