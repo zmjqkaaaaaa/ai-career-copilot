@@ -8,22 +8,4 @@ export const modules = [
   { title: 'AI 成长导师', description: '规划学习路线，持续积累实践与成长记录。', route: routes.growth, tone: 'violet' },
 ]
 
-export const skills = [
-  { label: '产品思维', score: 64 },
-  { label: 'Python', score: 45 },
-  { label: 'SQL', score: 52 },
-  { label: 'AI 技术理解', score: 58 },
-  { label: '项目实践', score: 36 },
-  { label: '面试表达', score: 42 },
-]
-
-export const tasks = [
-  { id: 'career-profile', title: '完成个人职业画像' },
-  { id: 'analyze-jd', title: '分析目标岗位 JD' },
-  { id: 'first-project', title: '完成第一个 AI 产品项目' },
-  { id: 'first-interview', title: '进行第一次模拟面试' },
-] as const
-
-export type TaskId = (typeof tasks)[number]['id']
-
 export const growthSteps = ['职业定位', '项目探索', '项目实践', '简历优化', '面试准备']

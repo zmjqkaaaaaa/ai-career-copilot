@@ -1,5 +1,5 @@
 import { BriefcaseBusiness, Compass, FilePenLine, FolderKanban, Target } from 'lucide-react'
-import { growthSteps } from '../../data/dashboardMock'
+import { growthSteps } from '../../data/dashboardContent'
 
 const icons = [Target, Compass, FolderKanban, FilePenLine, BriefcaseBusiness]
 

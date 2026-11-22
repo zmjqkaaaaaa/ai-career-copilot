@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
@@ -7,7 +8,7 @@ import { errorMessage } from '../services/api'
 import { authApi } from '../services/auth'
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
-  const { account, checking, login } = useAuth()
+  const { account, checking, accountDeleted, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [email, setEmail] = useState<string>(location.state?.email ?? '')
@@ -19,6 +20,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const returnPath = destination === routes.profile.path || destination === routes.career.path || destination === routes.jobs.path
     || destination === routes.interests.path || destination === routes.projects.path || destination === routes.workspace.path
     || destination === routes.interview.path || destination === routes.growth.path || destination === routes.applications.path
+    || destination === routes.settings.path
     ? destination + search : routes.dashboard.path
   const title = registering ? '注册账户' : '登录'
 
@@ -58,13 +60,14 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   return (
     <section className="surface auth-card" aria-labelledby="auth-title">
       <h1 id="auth-title">{title}</h1>
-      {location.state?.registered && <p className="form-success" role="status">注册成功，请登录。</p>}
-      <form className="account-form" onSubmit={submit}>
+      {location.state?.registered && <Feedback kind="success">注册成功，请登录。</Feedback>}
+      {!registering && accountDeleted && <Feedback kind="success">账户已删除。</Feedback>}
+      <form className="account-form" aria-busy={pending} onSubmit={submit}>
         {registering && <label>用户名<input name="username" autoComplete="nickname" required minLength={2} maxLength={64} /></label>}
         <label>邮箱<input name="email" type="email" autoComplete="username" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>密码<input name="password" type="password" autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 12 : undefined} maxLength={128} /></label>
-        {registering && <p className="panel-description">至少 12 个字符，包含字母以及数字或符号。</p>}
-        {error && <p className="form-error" role="alert">{error}</p>}
+        <label>密码<input name="password" type="password" autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 12 : undefined} maxLength={128} aria-describedby={registering ? 'password-requirements' : undefined} /></label>
+        {registering && <p id="password-requirements" className="panel-description">至少 12 个字符，包含字母以及数字或符号。</p>}
+        {error && <Feedback kind="error">{error}</Feedback>}
         <button className="button button-filled" disabled={pending}>{pending ? '正在提交…' : title}</button>
       </form>
       <p className="auth-switch">{registering ? '已有账户？' : '还没有账户？'}{' '}

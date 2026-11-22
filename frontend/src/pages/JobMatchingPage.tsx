@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../services/api'
@@ -20,7 +21,8 @@ export function JobMatchingPage() {
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [assessments, setAssessments] = useState<Record<number, string>>({})
   const [content, setContent] = useState<number | null>(null)
-  const [reportId, setReportId] = useState<number | null>(null)
+  const [reportId, setReportId] = useState<number | null>(() => Number(params.get('match')) || null)
+  const [explicitReport, setExplicitReport] = useState<Match | null>(null)
   const [gapData, setGapData] = useState<{ id: number; values: Gap[] } | null>(null)
   const [description, setDescription] = useState('')
   const [version, refresh] = useState(0)
@@ -33,7 +35,8 @@ export function JobMatchingPage() {
   selectionRef.current = selection
   const current = job?.id === selection ? job : null
   const reports = history.filter((item) => item.job_id === selection)
-  const report = reports.find((item) => item.id === reportId) ?? reports[0]
+  const report = reportId ? reports.find((item) => item.id === reportId)
+    ?? (explicitReport?.id === reportId && explicitReport.job_id === selection ? explicitReport : undefined) : reports[0]
   const running = current?.tasks.find(active)
   const latest = current?.tasks[0]
   const paused = busy || Boolean(running)
@@ -56,6 +59,17 @@ export function JobMatchingPage() {
     }).catch((failure) => { if (!ignore) setError(errorMessage(failure)) })
     return () => { ignore = true }
   }, [selection, version])
+
+  useEffect(() => {
+    if (!reportId || !selection) return
+    let ignore = false
+    jobsApi.matchDetail(reportId).then((result) => {
+      if (ignore) return
+      if (result.job_id !== selection) setError('所选报告与岗位不一致。')
+      else setExplicitReport(result)
+    }).catch((failure) => { if (!ignore) setError(errorMessage(failure)) })
+    return () => { ignore = true }
+  }, [reportId, selection, version])
 
   useEffect(() => {
     if (!report?.id) return
@@ -109,7 +123,7 @@ export function JobMatchingPage() {
       <button className="button button-outline" aria-pressed={tab === 'positions'} onClick={() => setTab('positions')}>岗位管理</button>
       <button className="button button-outline" aria-pressed={tab === 'history'} onClick={() => setTab('history')}>历史匹配</button>
     </div>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <Feedback kind="error">{error}</Feedback>}
     {tab === 'history' ? <section className="surface detail-panel">
       <h2>历史匹配记录</h2>
       {history.length === 0 && <p>还没有匹配报告。</p>}
@@ -161,7 +175,7 @@ export function JobMatchingPage() {
             </p>
             {current.parsed?.duties.length ? <><h3>工作职责</h3><ul>{current.parsed.duties.map((duty) => <li key={duty}>{duty}</li>)}</ul></> : null}
             {running && <p className="job-status" role="status">正在{running.kind === 'parse' ? '解析 JD' : '生成求职建议'}…</p>}
-            {!running && latest?.state === 'failed' && <p className="form-error" role="alert">任务失败（{latest.error_code}）。可重新核对后重试。</p>}
+            {!running && latest?.state === 'failed' && <Feedback kind="error">任务失败（{latest.error_code}）。可重新核对后重试。</Feedback>}
             <div className="career-actions">
               <button className="button button-filled" disabled={paused} onClick={() => modelPreview(`/jobs/${current.id}/parse`)}>解析 JD</button>
               <button className="button button-outline" disabled={paused} onClick={() => setDeleteId(current.id)}>删除岗位</button>
@@ -220,6 +234,8 @@ export function JobMatchingPage() {
                 })}>计算匹配</button>
             </div>
           </section>}
+          {report && <Link className="button button-outline" to={`/interest-exploration?match=${report.id}`}>根据此匹配报告探索项目</Link>}
+          {report && current && report.revision !== current.revision && <p>此报告基于历史 JD 第 {report.revision} 版。</p>}
           {report && <JobReport match={report} gaps={gapData?.id === report.id ? gapData.values : []} disabled={paused}
             onAdvice={() => modelPreview(`/job-matches/${report.id}/recommendations`)} />}
         </>}

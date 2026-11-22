@@ -23,6 +23,7 @@ class InterviewSetup(Contract):
     resume_content_id: int | None = Field(default=None, gt=0)
     job_id: int | None = Field(default=None, gt=0)
     interview_schedule_id: int | None = Field(default=None, gt=0)
+    application_id: int | None = Field(default=None, gt=0)
     recommendation_id: int | None = Field(default=None, gt=0)
     repository_id: int | None = Field(default=None, gt=0)
     commit: str | None = Field(default=None, pattern=r"^[a-f0-9]{40}$")
@@ -30,6 +31,8 @@ class InterviewSetup(Contract):
 
     @model_validator(mode="after")
     def verify_schedule(self):
+        if (self.application_id or self.interview_schedule_id) and (self.job_id or self.resume_content_id):
+            raise ValueError("使用投递或日程时，JD 和简历由投递记录决定")
         if self.commit and not self.repository_id:
             raise ValueError("提交版本需要对应仓库")
         if self.stage_minutes and (self.mode != "combined" or len(self.stage_minutes) != 7

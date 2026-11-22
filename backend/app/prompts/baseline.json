@@ -1,0 +1,205 @@
+{
+  "format": 1,
+  "active": {
+    "resume_extraction": "extract-1",
+    "career_analysis": "career-1",
+    "resume_optimization": "optimize-1",
+    "job_description": "jd-1",
+    "job_application_advice": "job-advice-1",
+    "discovery_turn": "turn-1",
+    "discovery_pain": "pain-2",
+    "discovery_research": "research-2",
+    "discovery_opportunity": "opportunity-1",
+    "discovery_recommend": "recommend-1",
+    "discovery_prd": "prd-2",
+    "mentor_architecture": "arch-1",
+    "mentor_explain": "explain-2",
+    "mentor_chat": "chat-1",
+    "mentor_quiz": "quiz-1",
+    "mentor_grade": "grade-1",
+    "interview_start": "start-1",
+    "interview_evaluate": "eval-4",
+    "learning_lesson": "lesson-2",
+    "learning_evaluation": "assessment-2",
+    "learning_path_coach": "path-1",
+    "job_strategy": "application-strategy-v1"
+  },
+  "versions": [
+    {
+      "prompt_name": "resume_extraction",
+      "version": "extract-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "3102f6e55ef39f19b6c5b90e0222ef3ba8d2dd68f3b04ac6bbc971d918e3d779"
+    },
+    {
+      "prompt_name": "career_analysis",
+      "version": "career-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "d204ce583a9f9bc1f8c0637653f24cb70a59436695b5a5b03e3c4c04f1857541"
+    },
+    {
+      "prompt_name": "resume_optimization",
+      "version": "optimize-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "0676d2feeeac0891aead14a5e1afc825c7f217cf1c3fb68670d9ec95461faf78"
+    },
+    {
+      "prompt_name": "job_description",
+      "version": "jd-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "63533fd66e9bc616523689fe14275bb74573296a5017435381cc3e5b5f692dfa"
+    },
+    {
+      "prompt_name": "job_application_advice",
+      "version": "job-advice-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "fbda1ee8462ffe67bd77e283ca3d19b095fcc4cc05c98dd0af92db6f453740d6"
+    },
+    {
+      "prompt_name": "discovery_turn",
+      "version": "turn-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "6d9f29538be06b29e12f31aea59d73a7de6de6debccc5541dca9e8deaaa7216d"
+    },
+    {
+      "prompt_name": "discovery_pain",
+      "version": "pain-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "78ec38571d63d99a3d36c3fac7c8e2ccc2b6eecc4249ba2ca080267292f55da5"
+    },
+    {
+      "prompt_name": "discovery_research",
+      "version": "research-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "2a3d801a8f5afa520517549f10a9eb7997630f2fee0da1f4617fb27647f8cc54"
+    },
+    {
+      "prompt_name": "discovery_opportunity",
+      "version": "opportunity-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "b5328069d5e0d7adf6c3f508240ef847790cabaab68eb0f070a98c32aa075688"
+    },
+    {
+      "prompt_name": "discovery_recommend",
+      "version": "recommend-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "cfc0c9ce71ecabe3706d3c8c00b8f1aa7416e4a7db1c073a894b5db476ca3f92"
+    },
+    {
+      "prompt_name": "discovery_prd",
+      "version": "prd-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "f6c30dea30f21ec039d765da3024e4aca03b639f87ee0fb36e17f3694e3ab017"
+    },
+    {
+      "prompt_name": "mentor_architecture",
+      "version": "arch-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "a015ca7c89b43b3e84197524231b2fee69795b7d812decd77f8b036fce190975"
+    },
+    {
+      "prompt_name": "mentor_explain",
+      "version": "explain-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "43fb764450cd1ac987c6f0bf14a684e491485ef57f86357de6e0ca283e711016"
+    },
+    {
+      "prompt_name": "mentor_chat",
+      "version": "chat-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "05eb03348478e33794314a454cc21d5a2e2ac971395a2087ecdc33545314a27c"
+    },
+    {
+      "prompt_name": "mentor_quiz",
+      "version": "quiz-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "ff63cea7ec3c9fb46b0a451f646fbde389b61bb042811292f1ad42ed2c64a673"
+    },
+    {
+      "prompt_name": "mentor_grade",
+      "version": "grade-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "f17d8f68f7d86d0523a5d8fe84aaf9f8b5a36aa1052d32bc62e406fa06e9fa12"
+    },
+    {
+      "prompt_name": "interview_start",
+      "version": "start-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "0b25914aa8677640ba2eba53745fc6c26b47197aa17a83e9c60defa59364bcfe"
+    },
+    {
+      "prompt_name": "interview_evaluate",
+      "version": "eval-4",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "0b5821d95baafddf8b178e059ad626a25974769dc8881107b0fd37285fe1e29d"
+    },
+    {
+      "prompt_name": "learning_lesson",
+      "version": "lesson-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "4854195391fb2003e2fbd27eaec5c6399df082fe5df49f0fd2b2c298269faf53"
+    },
+    {
+      "prompt_name": "learning_evaluation",
+      "version": "assessment-2",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "096fbe18c337411275c76cab17809da89bbf9b7c2a9768006ba7d01279d6daca"
+    },
+    {
+      "prompt_name": "learning_path_coach",
+      "version": "path-1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "061dac684aea246a0d4318dd8a934c8e7c2180b6d86b1b9076abd5dbbb37ed32"
+    },
+    {
+      "prompt_name": "job_strategy",
+      "version": "application-strategy-v1",
+      "created_at": null,
+      "registered_at": "2026-11-21",
+      "changelog": "初次登记现有提示词和数据契约",
+      "sha256": "340cde2614781cf75e0bdd5065d2c83c11f51b2a5c705cd55d6336a9a70fd9c1"
+    }
+  ]
+}

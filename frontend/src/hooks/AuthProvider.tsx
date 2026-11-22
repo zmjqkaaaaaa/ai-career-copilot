@@ -15,11 +15,13 @@ type AuthContextValue = {
   account: Account | null
   checking: boolean
   authError: string | null
+  accountDeleted: boolean
   profile: ProfileState
   reloadProfile: () => void
   retrySession: () => void
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  deleteAccount: (password: string) => Promise<void>
   saveProfile: (input: ProfileInput) => Promise<void>
 }
 
@@ -30,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [checking, setChecking] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [accountDeleted, setAccountDeleted] = useState(false)
   const [sessionCheck, setSessionCheck] = useState(0)
   const [profileState, setProfileState] = useState<{ userId: number; value: ProfileState } | null>(null)
   const [profileCheck, setProfileCheck] = useState(0)
@@ -74,16 +77,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [userId, profileCheck])
 
   const context: AuthContextValue = {
-    account, checking, authError, profile,
+    account, checking, authError, accountDeleted, profile,
     reloadProfile: () => { setProfileState(null); setProfileCheck((value) => value + 1) },
     retrySession: () => { setAuthError(null); setChecking(true); setSessionCheck((value) => value + 1) },
     async login(email, password) {
       const user = await authApi.login(email, password)
       setAuthError(null)
+      setAccountDeleted(false)
       setAccount(user)
     },
     async logout() {
       await authApi.logout()
+      setAccount(null)
+      setProfileState(null)
+    },
+    async deleteAccount(password) {
+      await authApi.deleteAccount(password)
+      setAccountDeleted(true)
       setAccount(null)
       setProfileState(null)
     },

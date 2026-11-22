@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.application import StrategyResult
 from app.services.job_pipeline_service import analytics
 from app.services.job_workflow import digest
+from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.resumes import utc_now
 
 
@@ -61,6 +62,9 @@ def enqueue(db, user_id, body, settings):
     if count >= 6:
         raise ApiError(429, "STRATEGY_RATE_LIMIT", "已达到策略分析的每小时额度，请稍后再试")
     if existing:
+        if existing.attempt >= 3:
+            raise ApiError(409, "STRATEGY_RETRY_LIMIT", "已达到此策略任务的重试上限")
+        existing.attempt += 1
         existing.state, existing.error_code, existing.started_at = "queued", None, None
         existing.updated_at = utc_now()
         row = existing
@@ -96,7 +100,8 @@ def run_strategy_once(factory, provider_factory=Provider, *, report_id=None):
     try:
         if not model_configured(settings) or provider_key != provider_fingerprint(settings):
             raise ApiError(409, "MODEL_CONFIG_CHANGED", "模型配置已改变")
-        service = provider_factory(settings)
+        service = task_provider(provider_factory, settings, factory,
+                                TaskContext("job_strategy", task.user_id, identifier, task.attempt, task.created_at, started))
         data = service.generate(STRATEGY_PROMPT, model_data(stats), StrategyResult)
         output = data.model_dump()
         if stats["sample_insufficient"]:

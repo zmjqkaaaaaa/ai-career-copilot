@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import applications, auth, career, code_projects, discovery, interviews, jobs, learning, profiles, resumes, users
+from app.api.v1.endpoints import applications, auth, career, code_projects, dashboard, discovery, interviews, jobs, learning, profiles, resumes, users
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
@@ -15,3 +15,4 @@ router.include_router(code_projects.router)
 router.include_router(interviews.router)
 router.include_router(learning.router)
 router.include_router(applications.router)
+router.include_router(dashboard.router)

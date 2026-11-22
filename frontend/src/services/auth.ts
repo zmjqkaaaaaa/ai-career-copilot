@@ -18,5 +18,9 @@ export const authApi = {
     method: 'POST', body: new URLSearchParams({ username: email, password }),
   }, false),
   logout: () => request<void>('/auth/session', { method: 'DELETE' }),
+  deleteAccount: (password: string) => request<{ status: 'deleted' }>('/users/me', {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, confirmed: true }),
+  }),
   me: (signal: AbortSignal) => request<Account>('/users/me', { signal }, false),
 }

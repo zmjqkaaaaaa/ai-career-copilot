@@ -185,8 +185,10 @@ export function Positions({ favorites, selected, select, versions, refresh, run,
         event.preventDefault()
         const data = new FormData(event.currentTarget)
         void run(async () => {
+          const version = versions.find((item) => item.id === Number(field(data, 'version')))
           await applications.create({ job_id: active.id, request_id: crypto.randomUUID(),
-            resume_version_id: Number(field(data, 'version')) || null, channel: field(data, 'channel') })
+            resume_version_id: version?.id ?? null, channel: field(data, 'channel'),
+            job_match_id: match && (!version || version.content_id === match.content_id) ? match.id : undefined })
           applied()
         })
       }}>

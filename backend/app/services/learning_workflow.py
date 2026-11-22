@@ -21,6 +21,7 @@ from app.services.interview_evaluation_service import excerpt
 from app.services.interview_preparation_service import clean
 from app.services.learning_catalog import FIXTURES, MODES, PROJECT_EXAMPLES, TOPICS
 from app.services.resumes import utc_now
+from app.services.llm_monitoring_service import TaskContext, task_provider
 
 PROMPTS = {"lesson": LESSON, "evaluation": EVALUATION, "path": PATH}
 ACTIVE = ("queued", "running")
@@ -209,7 +210,8 @@ def complete(factory, user, job_id, attempt, result=None, error=None):
                 from app.services.learning_plan import make_path
 
                 db.flush()
-                make_path(db, user, current_path.data["weekly_minutes"], current_path.data["goal"], "作业反馈后复核学习优先级")
+                make_path(db, user, current_path.data["weekly_minutes"], current_path.data["goal"], "作业反馈后复核学习优先级",
+                          interview_report_id=current_path.data.get("source", {}).get("report_id"))
         elif job.kind == "lesson":
             session = own(db, LearningSession, user, record_id)
             output = result.model_dump()
@@ -244,7 +246,8 @@ def run_learning_once(factory, provider_factory=Provider):
             raise ApiError(409, "MODEL_CONFIG_CHANGED", "请重新预览")
         if not hmac.compare_digest(saved["approval"], f"{expires}.{signature}"):
             raise ApiError(409, "LEARNING_PREVIEW_CHANGED", "请重新预览")
-        provider = provider_factory(settings)
+        provider = task_provider(provider_factory, settings, factory,
+                                 TaskContext("learning", user, job_id, attempt, job.created_at, now))
         try:
             result = provider.generate(PROMPTS[kind], saved["payload"], EvaluationOutput if kind == "evaluation" else LessonOutput)
         finally:

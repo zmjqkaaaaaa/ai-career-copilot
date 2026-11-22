@@ -10,8 +10,9 @@ from app.models.discovery import (
     MarketResearchRun, OpportunityAnalysis, PainPoint, ProductPrd, ProjectRecommendation,
 )
 from app.schemas.discovery import (
-    Competitor, Interest, JobInput, JobSubmit, Opportunity, Pain, PrdEdit, ProjectEdit, SessionInput,
+    Competitor, Interest, JobInput, JobSubmit, Opportunity, Pain, PrdEdit, ProjectEdit, SessionCreate, SessionInput,
 )
+from app.services.career_context import discovery_binding
 from app.services.competitor_analysis_service import grounded_claim
 from app.services.discovery_workflow import background, busy, enqueue, in_session, latest_prd, own, prepare, scoped
 from app.services.opportunity_evaluation_service import evaluate
@@ -26,7 +27,7 @@ def task_view(item):
     return show(item, "kind state attempt result_id error_code")
 
 def session_view(item):
-    return show(item, "title mode direction weekly_hours updated_at")
+    return show(item, "title mode direction weekly_hours updated_at source_snapshot")
 
 def check_idle(db, session_id):
     if busy(db, session_id):
@@ -38,8 +39,13 @@ def submit(path_kind, session, body, settings, db):
     return task_view(enqueue(db, session, body, settings))
 
 @router.post("/discovery/sessions", status_code=201)
-def create_session(body: SessionInput, user: CurrentUser, db: Database):
-    item = DiscoverySession(user_id=user.id, **body.model_dump())
+def create_session(body: SessionCreate, user: CurrentUser, db: Database):
+    source = discovery_binding(db, user.id, body.job_match_id, body.application_id)
+    fields = body.model_dump(exclude={"job_match_id", "application_id"})
+    if source:
+        fields["direction"] = source["role"]
+    item = DiscoverySession(user_id=user.id, **fields, source_snapshot=source,
+                            job_match_id=source["match_id"] if source else None, application_id=body.application_id)
     db.add(item)
     db.flush()
     db.refresh(item)
@@ -54,7 +60,7 @@ def sessions(user: CurrentUser, db: Database):
 @router.get("/discovery/sessions/{session_id}")
 def session_detail(session_id: int, user: CurrentUser, db: Database, settings: AppSettings):
     item = own(db, DiscoverySession, user.id, session_id)
-    return {**session_view(item), "background": background(db, user.id),
+    return {**session_view(item), "background": background(db, user.id, item.source_snapshot),
             "search_configured": bool(settings.tavily_api_key and settings.tavily_api_key.get_secret_value().strip()),
             "messages": [show(record, "role content details") for record in reversed(scoped(db, DiscoveryMessage, item, 100))],
             "interests": [show(record, "data") for record in scoped(db, InterestRecord, item)],
@@ -68,7 +74,8 @@ def session_detail(session_id: int, user: CurrentUser, db: Database, settings: A
 def edit_session(session_id: int, body: SessionInput, user: CurrentUser, db: Database):
     item = own(db, DiscoverySession, user.id, session_id, lock=True)
     check_idle(db, item.id)
-    for field, value in body.model_dump().items():
+    fields = body.model_dump(exclude={"direction"} if item.source_snapshot else None)
+    for field, value in fields.items():
         setattr(item, field, value)
     db.commit()
     return session_view(item)

@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../hooks/AuthProvider'
@@ -85,7 +86,7 @@ function ProfileForm({ initial, save }: { initial: ProfileInput | null; save: (i
   }
 
   return (
-    <form className="account-form profile-form" onSubmit={submit}>
+    <form className="account-form profile-form" aria-busy={saving} onSubmit={submit}>
       <fieldset disabled={saving}>
         <div className="profile-fields">
           {identityFields.map(([name, label, length]) => (
@@ -98,7 +99,7 @@ function ProfileForm({ initial, save }: { initial: ProfileInput | null; save: (i
         <ExperienceEditor title="实习经历" items={internships} setItems={setInternships} />
         <ExperienceEditor title="项目经历" items={projects} setItems={setProjects} />
       </fieldset>
-      {feedback && <p className={feedback.kind === 'error' ? 'form-error' : 'form-success'} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
+      {feedback && <Feedback kind={feedback.kind}>{feedback.text}</Feedback>}
       <button className="button button-filled" disabled={saving}>{saving ? '正在保存…' : '保存档案'}</button>
     </form>
   )
@@ -110,12 +111,9 @@ export function ProfilePage() {
   return (
     <section className="surface profile-card" aria-labelledby="profile-title">
       <h1 id="profile-title">个人档案</h1>
-      {profile.state === 'loading' && <p role="status">正在读取档案…</p>}
-      {profile.state === 'error' && <>
-        <p role="alert" className="form-error">{profile.message}</p>
-        <button type="button" className="button button-outline" onClick={reloadProfile}>重新读取</button>
-      </>}
-      {profile.state === 'missing' && <p className="panel-description">尚未创建档案。填写你想记录的信息即可保存。</p>}
+      {profile.state === 'loading' && <Feedback kind="loading">正在读取档案…</Feedback>}
+      {profile.state === 'error' && <Feedback kind="error" retry={reloadProfile}>{profile.message}</Feedback>}
+      {profile.state === 'missing' && <Feedback kind="empty">尚未创建档案。填写你想记录的信息即可保存。</Feedback>}
       {(profile.state === 'missing' || profile.state === 'ready') &&
         <ProfileForm initial={profile.state === 'ready' ? profile.data : null} save={saveProfile} />}
     </section>

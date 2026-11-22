@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.errors import ApiError
 from app.models.application import ApplicationStatusHistory, InterviewSchedule, JobApplication, ResumeVersion
@@ -44,19 +44,26 @@ def analytics(db, user_id, period):
     lower = datetime.combine(start, time.min)
     upper = datetime.combine(end + timedelta(days=1), time.min)
     cohort = application_query(user_id).where(JobApplication.applied_at >= lower, JobApplication.applied_at < upper)
-    applications = list(db.scalars(cohort))
+    applications = db.execute(cohort.with_only_columns(
+        JobApplication.id, JobApplication.applied_at, JobApplication.resume_version_id,
+        JobApplication.valid_submission, JobApplication.snapshot["position"].as_string().label("position"),
+    )).mappings().all()
     ids = cohort.with_only_columns(JobApplication.id)
     history = defaultdict(set)
     for identifier, status in db.execute(select(ApplicationStatusHistory.application_id, ApplicationStatusHistory.new_status)
-                                         .where(ApplicationStatusHistory.application_id.in_(ids))):
+                                         .where(ApplicationStatusHistory.application_id.in_(ids)).distinct()):
         history[identifier].add(status)
     interviews = defaultdict(set)
-    for row in db.scalars(select(InterviewSchedule).where(
+    for identifier, outcome in db.execute(select(InterviewSchedule.application_id,
+                                                 InterviewSchedule.details["result"].as_string()).where(
         InterviewSchedule.user_id == user_id, InterviewSchedule.application_id.in_(ids),
-    )):
-        interviews[row.application_id].add(row.details["result"])
-    names = dict(db.execute(select(ResumeVersion.id, ResumeVersion.version_name)
-                            .where(ResumeVersion.user_id == user_id)).all())
+    ).distinct()):
+        if outcome:
+            interviews[identifier].add(outcome)
+    version_ids = {row.resume_version_id for row in applications if row.resume_version_id is not None}
+    names = dict(db.execute(select(ResumeVersion.id, ResumeVersion.version_name).where(
+        ResumeVersion.user_id == user_id, ResumeVersion.id.in_(version_ids)
+    )).all()) if version_ids else {}
     by_position, by_resume = defaultdict(list), defaultdict(list)
     trend = Counter()
     entries = []
@@ -70,7 +77,7 @@ def analytics(db, user_id, period):
             "interview_passed": "passed" in outcomes, "offer": "offer" in seen,
         }
         entries.append(entry)
-        by_position[row.snapshot.get("position") or "未知岗位"].append(entry)
+        by_position[row.position if row.position and row.position != "null" else "未知岗位"].append(entry)
         by_resume[row.resume_version_id].append(entry)
         trend[row.applied_at.date().isoformat()] += 1
     summary = metrics(entries)
@@ -80,3 +87,21 @@ def analytics(db, user_id, period):
             "by_position": [{"label": key, **metrics(items)} for key, items in sorted(by_position.items())],
             "by_resume": [{"id": key, "label": names.get(key, "未选版本"), **metrics(items)}
                           for key, items in sorted(by_resume.items(), key=lambda group: group[0] or 0)]}
+
+
+def board_query(user_id, limit):
+    stmt = application_query(user_id)
+    if limit is not None:
+        ranked = stmt.with_only_columns(JobApplication.id, func.row_number().over(
+            partition_by=JobApplication.current_status, order_by=(JobApplication.updated_at.desc(), JobApplication.id.desc())
+        ).label("position")).subquery()
+        stmt = stmt.join(ranked, ranked.c.id == JobApplication.id).where(ranked.c.position <= limit + 1)
+    return stmt.order_by(JobApplication.updated_at.desc(), JobApplication.id.desc())
+
+
+def actions_query(user_id):
+    action = JobApplication.metadata_json["next_action"].as_string()
+    return application_query(user_id).where(
+        JobApplication.current_status.not_in(("offer", "rejected", "withdrawn")),
+        action.is_not(None), action.not_in(("null", "")),
+    ).order_by(JobApplication.updated_at.desc(), JobApplication.id.desc()).limit(5)

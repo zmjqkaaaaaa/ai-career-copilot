@@ -5,7 +5,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.models.user import User
 from app.models.user_profile import UserProfile
-from app.models import application, career, code_project, discovery, interview, job, learning, resume
+from app.models import application, career, code_project, discovery, interview, job, learning, operations, resume
 
 target_metadata = Base.metadata
 database_url = get_settings().database_url

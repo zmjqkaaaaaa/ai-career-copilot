@@ -67,8 +67,9 @@ def training_view(task, session_id):
 
 
 @router.get("/options")
-def options(user: CurrentUser, db: Database):
-    return available(db, user.id)
+def options(user: CurrentUser, db: Database, application_id: int | None = Query(default=None, gt=0),
+            interview_schedule_id: int | None = Query(default=None, gt=0)):
+    return available(db, user.id, application_id, interview_schedule_id)
 
 
 @router.post("/prepare")
@@ -84,6 +85,8 @@ def create(body: InterviewCreate, user: CurrentUser, db: Database):
     data = body.model_dump(exclude={"request_id"})
     if body.interview_schedule_id is None:
         data.pop("interview_schedule_id")
+    if body.application_id is None:
+        data.pop("application_id")
     key = str(body.request_id)
     stmt = select(InterviewSession).where(InterviewSession.user_id == user.id, InterviewSession.request_id == key)
     session = db.scalar(stmt)

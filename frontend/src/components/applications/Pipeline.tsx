@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { applications, field, statuses, type Application, type ResumeVersion, type Status, type StatusEvent } from '../../services/applications'
+import { applications, field, statuses, type Application, type CareerContext, type ResumeVersion, type Status, type StatusEvent } from '../../services/applications'
 import { dateLabel, JobName, Panel, showFailure, type Run } from './shared'
 
 const statusesList = Object.keys(statuses) as Status[]
@@ -9,11 +9,13 @@ const editable = [
   ['next_action', '下一步行动'], ['feedback', '面试反馈'], ['rejection_reason', '拒绝原因'],
 ] as const
 
-export function Pipeline({ columns, versions, selected, select, refresh, run, error, busy }: {
+export function Pipeline({ columns, versions, selected, select, refresh, run, error, busy, counts, more, loadMore }: {
   columns: Record<Status, Application[]> | undefined; versions: ResumeVersion[]; selected: number | null;
   select: (id: number) => void; refresh: number; run: Run; error: (message: string) => void; busy: boolean
+  counts?: Partial<Record<Status, number>>; more?: Record<Status, boolean>; loadMore: (status: Status) => void
 }) {
   const [detail, setDetail] = useState<Application | null>(null)
+  const [context, setContext] = useState<CareerContext | null>(null)
   const [history, setHistory] = useState<StatusEvent[]>([])
   const [status, setStatus] = useState<Status>('wishlist')
   const [dragged, setDragged] = useState<number | null>(null)
@@ -22,8 +24,8 @@ export function Pipeline({ columns, versions, selected, select, refresh, run, er
   useEffect(() => {
     if (!selected) return
     let ignore = false
-    Promise.all([applications.detail(selected), applications.history(selected)]).then(([record, events]) => {
-      if (!ignore) { setDetail(record); setStatus(record.current_status); setHistory(events) }
+    Promise.all([applications.detail(selected), applications.history(selected), applications.careerContext(selected)]).then(([record, events, source]) => {
+      if (!ignore) { setDetail(record); setStatus(record.current_status); setHistory(events); setContext(source) }
     }).catch((failure) => { if (!ignore) showFailure(failure, error) })
     return () => { ignore = true }
   }, [selected, refresh, error])
@@ -45,7 +47,7 @@ export function Pipeline({ columns, versions, selected, select, refresh, run, er
           setDragged(null)
           if (record && !busy) move(record, stage)
         }}>
-          <h3>{statuses[stage]} <span>{columns?.[stage].length ?? 0}</span></h3>
+          <h3>{statuses[stage]} <span>{counts?.[stage] ?? columns?.[stage].length ?? 0}</span></h3>
           {columns?.[stage].map((row) => <article key={row.id} draggable={!busy}
             onDragStart={(event) => { event.dataTransfer.setData('text/plain', String(row.id)); setDragged(row.id) }}
             onDragEnd={() => setDragged(null)}>
@@ -53,6 +55,8 @@ export function Pipeline({ columns, versions, selected, select, refresh, run, er
             <p>{dateLabel(row.applied_at)}</p>
             {row.next_action && <p>{row.next_action}</p>}
           </article>)}
+          {more?.[stage] && <button className="button button-outline" disabled={busy}
+            onClick={() => loadMore(stage)}>查看更多{statuses[stage]}</button>}
         </section>)}
       </div>
     </Panel>
@@ -62,7 +66,18 @@ export function Pipeline({ columns, versions, selected, select, refresh, run, er
         <Link className="button button-outline" to={`?tab=positions&job=${current.job_id}`}>查看岗位</Link>
         <Link className="button button-outline" to={`?tab=schedules&application=${current.id}`}>查看或添加面试</Link>
         {current.resume_version_id && <Link className="button button-outline" to={`?tab=versions&version=${current.resume_version_id}`}>查看投递简历</Link>}
+        <Link className="button button-outline" to={`/interview-practice?application=${current.id}`}>用本次投递模拟面试</Link>
       </div>
+      {context?.application_id === current.id && (context.match_id ? <>
+        <div className="flex flex-wrap gap-2">
+          <Link className="button button-outline" to={`/job-matching?job=${current.job_id}&match=${context.match_id}`}>查看匹配与能力差距</Link>
+          <Link className="button button-outline" to={`/interest-exploration?application=${current.id}&match=${context.match_id}`}>根据本次投递探索项目</Link>
+          <Link className="button button-outline" to={`/project-recommendations?application=${current.id}&match=${context.match_id}`}>查看本次投递的推荐项目</Link>
+        </div>
+        {context.projects.filter((item) => item.selected).map((item) => <p key={item.id}>
+          <Link className="application-link" to={`/project-recommendations?session=${item.session_id}`}>{item.name}</Link> · 已选项目
+        </p>)}
+      </> : <p>该投递的 JD 与简历版本暂无匹配报告。<Link className="application-link" to={`/job-matching?job=${current.job_id}`}>查看岗位匹配</Link></p>)}
       <form key={`status-${current.id}-${current.revision}`} className="account-form" onSubmit={(event) => {
         event.preventDefault()
         const data = new FormData(event.currentTarget)

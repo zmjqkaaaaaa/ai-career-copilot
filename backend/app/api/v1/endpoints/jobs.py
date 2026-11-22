@@ -176,6 +176,10 @@ def gaps(match_id: int, user: CurrentUser, db: Database):
     owned_match(db, user.id, match_id)
     return list(db.scalars(select(JobSkillGap.result).where(JobSkillGap.match_id == match_id).order_by(JobSkillGap.id)))
 
+@router.get("/job-matches/{match_id}")
+def read_match(match_id: int, user: CurrentUser, db: Database):
+    return match_view(owned_match(db, user.id, match_id))
+
 @router.get("/job-matches/{match_id}/recommendations-preview")
 def advice_preview(match_id: int, user: CurrentUser, db: Database):
     match = owned_match(db, user.id, match_id)

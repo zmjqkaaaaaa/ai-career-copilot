@@ -6,6 +6,8 @@ export const statuses = {
   interview_2: '二面', hr_interview: 'HR 面', offer: 'Offer', rejected: '已拒绝', withdrawn: '已放弃',
 } as const
 export type Status = keyof typeof statuses
+export type PipelineData = { target: string | null; columns: Record<Status, Application[]>; upcoming: Schedule[];
+  has_more?: Record<Status, boolean>; counts?: Partial<Record<Status, number>>; next_actions?: Application[] }
 export type Metadata = {
   industry?: string | null; education?: string | null; major?: string | null; experience?: string | null
   skills?: string[]; duties?: string | null; requirements_text?: string | null
@@ -31,6 +33,8 @@ export type Application = {
   job: { company: string | null; position: string; jd?: string; source_url?: string }
 }
 export type StatusEvent = { id: number; previous_status: Status | null; new_status: Status; changed_at: string; notes: string | null }
+export type CareerContext = { application_id: number; job_id: number; role: string; match_id: number | null;
+  projects: { id: number; session_id: number; name: string; selected: boolean }[] }
 export type Schedule = {
   id: number; application_id: number; company: string | null; position: string; revision: number
   timezone: string; scheduled_at: string; ends_at: string; duration: number; interview_round: string
@@ -73,12 +77,15 @@ export const applications = {
     ? request<ResumeVersion>(`/resume-versions/${id}`, json('PATCH', body))
     : request<ResumeVersion>('/resume-versions', json('POST', body)),
   detail: (id: number) => request<Application>(`/applications/${id}`),
+  careerContext: (id: number) => request<CareerContext>(`/applications/${id}/career-context`),
   create: (body: unknown) => request<Application>('/applications', json('POST', body)),
   edit: (id: number, body: unknown) => request<Application>(`/applications/${id}`, json('PATCH', body)),
   move: (record: Application, status: Status, notes?: string) => request<Application>(`/applications/${record.id}/status`,
     json('POST', { revision: record.revision, request_id: crypto.randomUUID(), status, notes })),
   history: (id: number) => request<StatusEvent[]>(`/applications/${id}/history`),
-  pipeline: () => request<{ target: string | null; columns: Record<Status, Application[]>; upcoming: Schedule[] }>('/job-pipeline'),
+  pipeline: (limit?: number) => request<PipelineData>(limit ? `/job-pipeline?limit_per_status=${limit}` : '/job-pipeline'),
+  boardPage: (status: Status, previous: Application, limit: number) => request<Application[]>('/applications?' +
+    new URLSearchParams({ status, limit: String(limit), recent: 'true', before_time: previous.updated_at, before_id: String(previous.id) })),
   schedules: () => request<Schedule[]>('/interview-schedules'),
   saveSchedule: (body: unknown, id?: number) => id
     ? request<Schedule>(`/interview-schedules/${id}`, json('PATCH', body))

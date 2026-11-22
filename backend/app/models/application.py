@@ -40,7 +40,8 @@ class JobApplication(OwnedRecord, Base):
     __tablename__ = "job_applications"
     __table_args__ = (UniqueConstraint("user_id", "request_id", name="uq_application_request"),
                       UniqueConstraint("user_id", "job_id", name="uq_application_job"),
-                      Index("ix_application_owner_date", "user_id", "applied_at"))
+                      Index("ix_application_owner_date", "user_id", "applied_at"),
+                      Index("ix_application_board", "user_id", "current_status", "updated_at", "id"))
     request_id: Mapped[str] = mapped_column(String(36))
     fingerprint: Mapped[str] = mapped_column(String(64))
     job_id: Mapped[int] = mapped_column(ForeignKey("job_positions.id", ondelete="RESTRICT"))
@@ -56,7 +57,8 @@ class JobApplication(OwnedRecord, Base):
 
 class ApplicationStatusHistory(Base):
     __tablename__ = "application_status_history"
-    __table_args__ = (UniqueConstraint("application_id", "request_id", name="uq_application_history_request"),)
+    __table_args__ = (UniqueConstraint("application_id", "request_id", name="uq_application_history_request"),
+                      Index("ix_application_history_status", "application_id", "new_status"))
     id: Mapped[int] = mapped_column(primary_key=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("job_applications.id", ondelete="CASCADE"))
     request_id: Mapped[str] = mapped_column(String(36))
@@ -87,6 +89,7 @@ class JobStrategyReport(OwnedRecord, Base):
     statistics: Mapped[dict] = mapped_column(JSON)
     analysis: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
     state: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    attempt: Mapped[int] = mapped_column(default=1, server_default="1")
     started_at: Mapped[datetime | None]
     error_code: Mapped[str | None] = mapped_column(String(64))
     provider_key: Mapped[str] = mapped_column(String(64))

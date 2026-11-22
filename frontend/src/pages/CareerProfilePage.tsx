@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useState } from 'react'
 import { FileText, RotateCw, UploadCloud } from 'lucide-react'
 import { EvidenceReport } from '../components/career/EvidenceReport'
@@ -215,13 +216,13 @@ export function CareerProfilePage() {
         </li>)}</ul>}
       </aside>
       <div className="career-main">
-        {loadError && <div className="surface detail-panel"><p className="form-error" role="alert">{loadError}</p>
+        {loadError && <div className="surface detail-panel"><Feedback kind="error">{loadError}</Feedback>
           <button className="button button-outline" onClick={() => setRevision((index) => index + 1)}>重新读取</button></div>}
-        {actionError && <p className="form-error" role="alert">{actionError}</p>}
-        {message && <p className="form-success" role="status">{message}</p>}
-        {reading && !current && <p role="status">正在读取简历…</p>}
+        {actionError && <Feedback kind="error">{actionError}</Feedback>}
+        {message && <Feedback kind="success">{message}</Feedback>}
+        {reading && !current && <Feedback kind="loading">正在读取简历…</Feedback>}
         {activeJob && <p className="job-status" role="status">{operationNames[activeJob.kind]} · {activeJob.state === 'running' ? '处理中' : '等待处理'}</p>}
-        {!activeJob && latest?.state === 'failed' && <p className="form-error" role="alert">{operationNames[latest.kind]}失败。{errors[latest.error_code ?? ''] ?? '暂时无法完成，可手动重试。'}</p>}
+        {!activeJob && latest?.state === 'failed' && <Feedback kind="error">{operationNames[latest.kind]}失败。{errors[latest.error_code ?? ''] ?? '暂时无法完成，可手动重试。'}</Feedback>}
         {!selectedResume && !reading && <section className="surface detail-panel">
           <h2>从上传简历开始</h2><p className="panel-description">完成本地解析后，可以核对发给模型的内容。</p>
         </section>}
@@ -288,7 +289,7 @@ export function CareerProfilePage() {
               </select>
             </label>
           </section>}
-          {reportError && <p className="form-error" role="alert">{reportError}</p>}
+          {reportError && <Feedback kind="error">{reportError}</Feedback>}
           {report && report.analysis.id === reportId && <EvidenceReport result={report} />}
         </>}
         {selectedResume && view === 'optimization' && <>

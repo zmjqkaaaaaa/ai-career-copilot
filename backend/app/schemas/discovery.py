@@ -16,6 +16,10 @@ class SessionInput(Schema):
     direction: Short | None = None
     weekly_hours: int | None = Field(default=None, ge=1, le=80)
 
+class SessionCreate(SessionInput):
+    job_match_id: int | None = Field(default=None, gt=0)
+    application_id: int | None = Field(default=None, gt=0)
+
 class Interest(Schema):
     name: Short
     category: Literal["行业", "场景", "技术", "经历", "优势", "探索方向"]

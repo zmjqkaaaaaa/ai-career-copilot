@@ -1,11 +1,19 @@
 from functools import lru_cache
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+class ModelPrice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    input_per_million: Decimal = Field(ge=0, le=10000, max_digits=12, decimal_places=6)
+    output_per_million: Decimal = Field(ge=0, le=10000, max_digits=12, decimal_places=6)
+    currency: str = Field(pattern="^[A-Z]{3}$")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -18,6 +26,9 @@ class Settings(BaseSettings):
     db_name: str = "career_copilot"
     db_user: str = "career_app"
     db_password: SecretStr
+    db_pool_size: int = Field(default=5, ge=1, le=30)
+    db_max_overflow: int = Field(default=10, ge=0, le=30)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=60, le=7200)
     jwt_secret: SecretStr
     jwt_minutes: int = Field(default=30, ge=1, le=60)
     cors_origins: list[str] = ["http://127.0.0.1:5173", "http://localhost:5173"]
@@ -32,6 +43,19 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = Field(default=75, ge=5, le=120)
     llm_max_tokens: int = Field(default=5500, ge=500, le=10000)
     llm_max_input_chars: int = Field(default=36000, ge=5000, le=90000)
+    worker_heartbeat_max_age: int = Field(default=300, ge=30, le=900)
+    worker_concurrency: int = Field(default=2, ge=1, le=4)
+    llm_prices: dict[str, ModelPrice] = Field(default_factory=dict)
+
+    @field_validator("llm_thinking", mode="before")
+    @classmethod
+    def empty_thinking_is_unset(cls, value):
+        return None if value == "" else value
+
+    @field_validator("llm_prices", mode="before")
+    @classmethod
+    def null_prices_are_unset(cls, value):
+        return {} if value is None else value
 
     @model_validator(mode="after")
     def validate_security(self):

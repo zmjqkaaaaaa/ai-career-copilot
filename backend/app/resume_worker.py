@@ -1,9 +1,9 @@
 """Consume persisted jobs. Run alongside FastAPI with python -m app.resume_worker."""
 import argparse
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
-from time import sleep
+from time import monotonic, sleep
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from app.models.resume import Resume, ResumeContent, ResumeJob
 from app.models import user  # Register the users table in the standalone worker's ORM metadata.
 from app.schemas.career import CareerResult, OptimizationResult, StructuredResume
 from app.services.career import store_analysis, store_optimizations
+from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.resume_parser import PARSER_VERSION, parse_resume
 from app.services.resume_storage import storage_path
 from app.services.resumes import copy_revision, latest_content, utc_now
@@ -34,6 +35,8 @@ class Task:
     kind: str
     attempt: int
     payload: dict
+    created_at: datetime | None = None
+    started_at: datetime | None = None
 
 def claim_job(factory) -> Task | None:
     with factory() as db:
@@ -44,7 +47,7 @@ def claim_job(factory) -> Task | None:
         job.state = "running"
         job.started_at = utc_now()
         db.commit()
-        return Task(job.id, job.resume_id, job.kind, job.attempt, job.payload)
+        return Task(job.id, job.resume_id, job.kind, job.attempt, job.payload, job.created_at, job.started_at)
 
 def find_stale_jobs(factory) -> list[Task]:
     with factory() as db:
@@ -73,7 +76,8 @@ def compute(factory, task: Task, provider_factory):
     if (task.payload.get("external_processing_accepted") is not True or not blocks
             or task.payload.get("approved_text_digest") != approved_text_digest(blocks)):
         raise ApiError(422, "EXTERNAL_PROCESSING_CONSENT_REQUIRED", "请重新确认并提交脱敏文本")
-    provider = provider_factory(settings)
+    provider = task_provider(provider_factory, settings, factory,
+                             TaskContext("resume", resume.user_id, task.id, task.attempt, task.created_at, task.started_at))
     try:
         if task.kind == "extract":
             drafts = provider.generate(EXTRACT, {"blocks": blocks}, StructuredResume)
@@ -149,16 +153,22 @@ def run_once(factory=None, provider_factory=Provider) -> bool:
     return True
 
 def main() -> None:
+    from app.core.rate_limit import clear_expired_windows
+    from app.services.account_deletion import clean_file_once
     from app.services.learning_workflow import run_learning_once
     from app.services.interview_engine import run_interview_once
     from app.services.code_project_workflow import run_code_project_once
     from app.services.discovery_workflow import run_discovery_once
     from app.services.job_workflow import run_job_once
     from app.services.job_strategy_service import run_strategy_once
+    from app.services.worker_health import FULL_WORKER, HEARTBEAT_SECONDS, STRATEGY_WORKER, heartbeat
+    from app.services.worker_scheduler import run_queues
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--approved-host", help="Require this configured model hostname before the worker starts.")
-    parser.add_argument("--strategy-only", action="store_true", help="Process only approved anonymous job strategy reports.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--strategy-only", action="store_true", help="Process only approved anonymous job strategy reports.")
+    mode.add_argument("--maintenance-only", action="store_true", help="Process only deferred account file cleanup.")
     args = parser.parse_args()
     if args.approved_host:
         hostname = urlsplit(get_settings().llm_base_url or "").hostname
@@ -166,22 +176,38 @@ def main() -> None:
             raise SystemExit("The configured model host does not match the approved destination.")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     logger.info("resume worker started")
+    factory = session_factory()
+    role = STRATEGY_WORKER if args.strategy_only else FULL_WORKER
+    next_heartbeat = 0.0
+    next_rate_cleanup = 0.0
+
+    def beat_if_due():
+        nonlocal next_heartbeat
+        if monotonic() >= next_heartbeat:
+            heartbeat(factory, role)
+            next_heartbeat = monotonic() + HEARTBEAT_SECONDS
+
+    def maintain(db_factory):
+        nonlocal next_rate_cleanup
+        if monotonic() >= next_rate_cleanup:
+            clear_expired_windows(db_factory)
+            next_rate_cleanup = monotonic() + 60
+        return clean_file_once(db_factory)
+
+    workflows = (maintain, run_once, run_job_once, run_discovery_once, run_code_project_once,
+                 run_interview_once, run_learning_once, run_strategy_once)
     while True:
         try:
-            if args.strategy_only:
-                if not run_strategy_once(session_factory()):
+            if args.maintenance_only:
+                if not maintain(factory):
                     sleep(1)
                 continue
-            resume_processed = run_once()
-            job_processed = run_job_once(session_factory())
-            discovery_processed = run_discovery_once(session_factory())
-            code_processed = run_code_project_once(session_factory())
-            interview_processed = run_interview_once(session_factory())
-            learning_processed = run_learning_once(session_factory())
-            strategy_processed = run_strategy_once(session_factory())
-            if not any((resume_processed, job_processed, discovery_processed, code_processed, interview_processed,
-                        learning_processed, strategy_processed)):
-                sleep(1)
+            if args.strategy_only:
+                beat_if_due()
+                if not run_strategy_once(factory):
+                    sleep(1)
+                continue
+            run_queues(factory, workflows, beat_if_due, get_settings().worker_concurrency)
         except OperationalError:
             logger.warning("resume worker database temporarily unavailable")
             sleep(3)

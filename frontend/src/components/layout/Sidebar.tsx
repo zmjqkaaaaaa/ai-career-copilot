@@ -33,6 +33,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
         ))}
       </nav>
       <div className="sidebar-footer">
+        <SidebarLink route={routes.profile} onNavigate={onNavigate} />
         <SidebarLink route={routes.settings} onNavigate={onNavigate} />
         {account ? <>
           <NavLink to={routes.profile.path} onClick={onNavigate} className="account-link">

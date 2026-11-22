@@ -1,7 +1,8 @@
 from datetime import date
 
 from fastapi import APIRouter, Query
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
+from pydantic import AwareDatetime
 
 from app.api.dependencies import AppSettings, CurrentUser, Database
 from app.core.errors import ApiError
@@ -16,6 +17,7 @@ from app.services import interview_schedule_service as schedules
 from app.services import job_pipeline_service as pipeline
 from app.services import job_strategy_service as strategy
 from app.services import resume_version_service as versions
+from app.services.career_context import application_match, scoped_recommendations
 from app.services.resumes import utc_now
 
 router = APIRouter(tags=["job applications"])
@@ -83,16 +85,36 @@ def create_application(body: ApplicationCreate, user: CurrentUser, db: Database)
 
 @router.get("/applications")
 def list_applications(user: CurrentUser, db: Database, status: Status | None = None,
-                      offset: int = Query(0, ge=0)):
+                      offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=100), recent: bool = False,
+                      before_time: AwareDatetime | None = None, before_id: int | None = Query(None, gt=0)):
     stmt = pipeline.application_query(user.id)
     if status is not None:
         stmt = stmt.where(JobApplication.current_status == status)
-    return [application_view(row) for row in db.scalars(stmt.order_by(JobApplication.id.desc()).offset(offset).limit(100))]
+    if recent:
+        stmt = stmt.order_by(JobApplication.updated_at.desc())
+    if before_time is not None or before_id is not None:
+        if not recent or before_id is None or before_time is None or offset:
+            raise ApiError(422, "APPLICATION_PAGE_INVALID", "看板分页需要时间和编号，并使用最近更新顺序")
+        point = tracking.naive_utc(before_time)
+        stmt = stmt.where(or_(JobApplication.updated_at < point,
+                             and_(JobApplication.updated_at == point, JobApplication.id < before_id)))
+    return [application_view(row) for row in db.scalars(stmt.order_by(JobApplication.id.desc()).offset(offset).limit(limit))]
 
 
 @router.get("/applications/{application_id}")
 def get_application(application_id: int, user: CurrentUser, db: Database):
     return application_view(tracking.owned(db, user.id, application_id), full=True)
+
+
+@router.get("/applications/{application_id}/career-context")
+def get_career_context(application_id: int, user: CurrentUser, db: Database):
+    record = tracking.owned(db, user.id, application_id)
+    match = application_match(db, user.id, record)
+    projects = db.scalars(scoped_recommendations(user.id, match.id, record.id).limit(20)).all() if match else []
+    return {"application_id": record.id, "job_id": record.job_id, "role": record.snapshot["position"],
+            "match_id": match.id if match else None, "resume_version_id": record.resume_version_id,
+            "projects": [{"id": item.id, "session_id": item.session_id, "name": item.data["name"],
+                          "selected": item.selected} for item in projects]}
 
 
 @router.patch("/applications/{application_id}")
@@ -135,17 +157,29 @@ def edit_schedule(schedule_id: int, body: SchedulePatch, user: CurrentUser, db: 
 
 
 @router.get("/job-pipeline")
-def get_pipeline(user: CurrentUser, db: Database):
+def get_pipeline(user: CurrentUser, db: Database, limit_per_status: int | None = Query(None, ge=1, le=100)):
     columns = {status: [] for status in tracking.STATUSES}
-    for row in db.scalars(pipeline.application_query(user.id).order_by(JobApplication.updated_at.desc())):
-        columns[row.current_status].append(application_view(row))
+    more = {status: False for status in tracking.STATUSES}
+    for row in db.scalars(pipeline.board_query(user.id, limit_per_status)):
+        column = columns[row.current_status]
+        if limit_per_status is not None and len(column) == limit_per_status:
+            more[row.current_status] = True
+        else:
+            column.append(application_view(row))
     profile = db.scalar(select(UserProfile).where(UserProfile.user_id == user.id))
     upcoming = db.execute(select(InterviewSchedule, JobApplication).join(JobApplication).where(
         InterviewSchedule.user_id == user.id, JobApplication.user_id == user.id,
         InterviewSchedule.scheduled_at >= utc_now(), InterviewSchedule.details["result"].as_string() == "scheduled"
     ).order_by(InterviewSchedule.scheduled_at).limit(5))
-    return {"target": profile.target_position if profile else None, "columns": columns,
-            "upcoming": [schedule_view(row, app) for row, app in upcoming]}
+    result = {"target": profile.target_position if profile else None, "columns": columns,
+              "upcoming": [schedule_view(row, app) for row, app in upcoming]}
+    if limit_per_status is not None:
+        counts = dict(db.execute(pipeline.application_query(user.id).with_only_columns(
+            JobApplication.current_status, func.count()
+        ).group_by(JobApplication.current_status)).all())
+        result.update(has_more=more, counts=counts,
+                      next_actions=[application_view(row) for row in db.scalars(pipeline.actions_query(user.id))])
+    return result
 
 
 @router.get("/job-analytics")

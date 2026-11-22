@@ -10,7 +10,8 @@ export function SessionEditor({ session, onSave, disabled }: { session: Session;
     <div className="profile-fields">
       <label>会话名称<input value={value.title} required maxLength={180} onChange={(e) => set({ ...value, title:e.target.value })} /></label>
       <label>教学模式<select value={value.mode} onChange={(e) => set({ ...value, mode:e.target.value === 'guided' ? 'guided' : 'assisted' })}><option value="guided">引导模式</option><option value="assisted">辅助模式</option></select></label>
-      <label>探索方向<input value={value.direction ?? ''} maxLength={180} onChange={(e) => set({ ...value, direction:e.target.value || null })} /></label>
+      <label>探索方向<input value={value.direction ?? ''} maxLength={180} readOnly={Boolean(session.source_snapshot)}
+        onChange={(e) => set({ ...value, direction:e.target.value || null })} /></label>
       <label>每周可投入小时<input type="number" min={1} max={80} value={value.weekly_hours ?? ''} onChange={(e) => set({ ...value, weekly_hours:Number(e.target.value) || null })} /></label>
     </div><button className="button button-outline" disabled={disabled}>保存探索偏好</button>
   </form>

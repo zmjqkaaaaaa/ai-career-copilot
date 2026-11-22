@@ -2,7 +2,7 @@ import { request } from './api'
 
 export type Setup = { mode: string; difficulty: string; style: string; minutes: number; deep_followup: boolean;
   teaching: boolean; target?: string; resume_content_id?: number; job_id?: number; recommendation_id?: number;
-  repository_id?: number; commit?: string; interview_schedule_id?: number; stage_minutes?: Record<string, number> }
+  repository_id?: number; commit?: string; interview_schedule_id?: number; application_id?: number; stage_minutes?: Record<string, number> }
 type Option = { id: number; label: string; version?: number }
 export type Options = { target: string; modes: Record<string,string>; styles: Record<string,string>;
   difficulties: Record<string,string>; stages: Record<string,string>; resumes: Option[]; jobs: Option[]; projects: Option[];
@@ -40,7 +40,12 @@ const json = (method: string, value?: unknown): RequestInit => ({
 })
 
 export const interview = {
-  options: () => request<Options>(`${base}/options`),
+  options: (application?: number, schedule?: number) => {
+    const parameters = new URLSearchParams()
+    if (application) parameters.set('application_id', String(application))
+    if (schedule) parameters.set('interview_schedule_id', String(schedule))
+    return request<Options>(`${base}/options?${parameters}`)
+  },
   prepare: (value: Setup) => request<Preparation>(`${base}/prepare`, json('POST', value)),
   create: (value: Setup, nonce: string) => request<Session>(`${base}/sessions`, json('POST', { ...value, request_id: nonce })),
   history: (before?: number) => request<Session[]>(`${base}/sessions${before ? '?before=' + before : ''}`),

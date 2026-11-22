@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from hashlib import sha256
 import hmac
 import json
@@ -18,6 +18,7 @@ from app.models.code_project import CodeProject, ProjectFile, ProjectLesson, Pro
 from app.schemas.code_project import GradeOutput, LessonOutput, QuizOutput
 from app.services.codebase_parser import mask_source, parse_file, select_entries
 from app.services.github_service import GitHub
+from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.project_knowledge_service import architecture, citations, files_for
 from app.services.resumes import utc_now
 
@@ -163,6 +164,8 @@ class Work:
     payload: dict
     slug: str
     user_id: int
+    created_at: datetime | None = None
+    started_at: datetime | None = None
 
 
 def collect_repository(factory, work, github):
@@ -195,7 +198,7 @@ def collect_file(factory, work, github):
     return parse_file(item.path, item.metadata_json["language"], raw)
 
 
-def model_result(work, settings, provider_factory):
+def model_result(work, settings, provider_factory, factory):
     from app.schemas.code_project import StudyRequest
 
     saved = work.payload
@@ -206,7 +209,8 @@ def model_result(work, settings, provider_factory):
     if not hmac.compare_digest(saved["approval"], f"{saved['expires']}.{expected}"):
         raise ApiError(409, "CODE_PREVIEW_CHANGED", "待处理内容与确认预览不一致")
     payload = saved["input"]
-    provider = provider_factory(settings)
+    provider = task_provider(provider_factory, settings, factory,
+                             TaskContext("code_analysis", work.user_id, work.id, work.attempt, work.created_at, work.started_at))
     try:
         if work.kind == "grade":
             return grade(provider.generate(PROMPTS["grade"], payload, GradeOutput), payload)
@@ -302,7 +306,7 @@ def run_code_project_once(factory, provider_factory=Provider, github_factory=Git
         project = db.get(CodeProject, task.project_id)
         task.state, task.started_at = "running", utc_now()
         work = Work(task.id, task.project_id, task.snapshot_id, task.kind, task.attempt, task.payload,
-                    project.slug, project.user_id)
+                    project.slug, project.user_id, task.created_at, task.started_at)
     try:
         if work.kind in {"import", "load"}:
             github = github_factory()
@@ -311,7 +315,7 @@ def run_code_project_once(factory, provider_factory=Provider, github_factory=Git
             finally:
                 github.close()
         else:
-            result = model_result(work, get_settings(), provider_factory)
+            result = model_result(work, get_settings(), provider_factory, factory)
         complete(factory, work, result)
     except ApiError as error:
         logger.info("code project task id=%s status=%s", work.id, error.code)

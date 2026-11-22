@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ArchitectureIndex, EvidenceList, FileTree, LessonCard } from '../components/mentor/CodeEvidence'
@@ -148,7 +149,7 @@ export function ProjectWorkspacePage() {
         </ul>
       </aside>
       <div className="career-main">
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {error && <Feedback kind="error">{error}</Feedback>}
         {!current && <section className="surface detail-panel"><h2>{projectId ? '正在读取项目…' : '请导入或选择一个项目'}</h2></section>}
         {current && <section className="surface detail-panel account-form">
           <h2 className="break-all">{current.slug}</h2>

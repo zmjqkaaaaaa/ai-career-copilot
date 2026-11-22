@@ -13,7 +13,7 @@ from app.schemas.learning import Answers, PlanInput, ResourceInput, ReviewInput,
 from app.services.github_service import normalize_repo
 from app.services.learning_assessment import exam
 from app.services.learning_catalog import CATEGORIES, FIXTURES, MODES, OPEN_FORMATS, TOPICS
-from app.services.learning_plan import daily, diagnosis, latest, make_path
+from app.services.learning_plan import daily, diagnosis, interview_source, interview_source_view, latest, make_path
 from app.services.learning_resources import CATALOG
 from app.services.learning_workflow import ACTIVE, enqueue, lock_user, own, preview, rubric, topic_for
 from app.services.resume_parser import docx_sections, validate_file
@@ -64,9 +64,15 @@ def save_diagnosis(user: CurrentUser, db: Database):
 @router.post("/paths/generate", status_code=201)
 def generate_path(body: PlanInput, user: CurrentUser, db: Database):
     lock_user(db, user.id)
-    item = make_path(db, user.id, body.weekly_minutes, body.goal, "按目标、优先级与先修生成")
+    reason = "按本次面试反馈与先修生成" if body.interview_report_id else "按目标、优先级与先修生成"
+    item = make_path(db, user.id, body.weekly_minutes, body.goal, reason, interview_report_id=body.interview_report_id)
     db.commit()
     return view(item, "version", "data")
+
+
+@router.get("/interview-sources/{report_id}")
+def read_interview_source(report_id: int, user: CurrentUser, db: Database):
+    return interview_source_view(*interview_source(db, user.id, report_id))
 
 
 @router.get("/paths")
@@ -85,7 +91,10 @@ def update_path(path_id: int, body: PlanInput, user: CurrentUser, db: Database):
     item = own(db, LearningPath, user.id, path_id)
     if latest(db, LearningPath, user.id).id != item.id:
         raise ApiError(409, "LEARNING_PATH_CHANGED", "请从最新版调整")
-    revised = make_path(db, user.id, body.weekly_minutes, body.goal, "用户调整目标或时间预算")
+    source_id = (body.interview_report_id if "interview_report_id" in body.model_fields_set
+                 else item.data.get("source", {}).get("report_id"))
+    revised = make_path(db, user.id, body.weekly_minutes, body.goal, "用户调整目标或时间预算",
+                        interview_report_id=source_id)
     db.commit()
     return view(revised, "version", "data")
 
@@ -394,7 +403,8 @@ def submit_assessment(assessment_id: int, body: Answers, user: CurrentUser, db: 
         path = latest(db, LearningPath, user.id)
         if path:
             make_path(db, user.id, path.data["weekly_minutes"], path.data["goal"],
-                      "阶段测评后更新先修与复练优先级")
+                      "阶段测评后更新先修与复练优先级",
+                      interview_report_id=path.data.get("source", {}).get("report_id"))
     db.commit()
     return assessment_view(item)
 

@@ -10,6 +10,7 @@ class Contract(BaseModel):
 class PlanInput(Contract):
     weekly_minutes: int = Field(ge=15, le=1200)
     goal: str = Field(default="", max_length=200)
+    interview_report_id: int | None = Field(default=None, gt=0)
 
 
 class TopicInput(Contract):

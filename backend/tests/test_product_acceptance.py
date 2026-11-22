@@ -1,6 +1,7 @@
 """One account progresses through every module via public application interfaces."""
 import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ from test_learning import process as learning_worker, queue as learning_queue
 from test_resumes import SyntheticProvider, create_parsed, workspace  # shared synthetic DOCX fixture
 
 API = "/api/v1"
+RETROSPECTIVE = "验收样本：需要清楚说明库存统计口径。"
 
 
 def read(client, route, headers, params=None):
@@ -39,7 +41,7 @@ def run_browser(email, refs):
     with sync_playwright() as runner:
         channel = os.environ.get("CAREER_BROWSER_CHANNEL")
         browser = runner.chromium.launch(**({"channel": channel} if channel else {}))
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = browser.new_page(viewport={"width": 1280, "height": 900}, timezone_id="UTC")
         page.goto(base + "/growth")
         expect(page).to_have_url(base + "/login")
         page.get_by_label("邮箱").fill(email)
@@ -52,6 +54,37 @@ def run_browser(email, refs):
         page.goto(base + "/")
         expect(page.get_by_text("合成贯通验收", exact=False).first).to_be_visible()
         expect(page.get_by_text("测评已验证 · 1 项", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name=refs["proposal_name"])).to_have_attribute(
+            "href", f"/project-recommendations?session={refs['discovery']}"
+        )
+        expect(page.get_by_role("link", name="查看面试报告")).to_have_attribute(
+            "href", f"/interview-practice?tab=report&session={refs['interview']}"
+        )
+        expect(page.get_by_role("region", name="今日学习任务").locator("li").first).to_be_visible()
+        expect(page.get_by_role("region", name="当前投递进度").get_by_text("一面", exact=True)).to_be_visible()
+        action = page.get_by_role("region", name="下一步行动")
+        expect(action.get_by_text("准备库存问题复盘")).to_be_visible()
+        action.get_by_role("link", name="前往处理").click()
+        board = f"/application-workspace?tab=board&application={refs['application']}"
+        expect(page).to_have_url(base + board)
+        expect(page.get_by_role("link", name="查看匹配与能力差距")).to_have_attribute(
+            "href", f"/job-matching?job={refs['job']}&match={refs['match']}"
+        )
+        expect(page.get_by_role("link", name="查看投递简历")).to_have_attribute(
+            "href", f"/application-workspace?tab=versions&version={refs['resume_version']}"
+        )
+        page.goto(base + f"/application-workspace?tab=schedules&application={refs['application']}&schedule={refs['schedule']}")
+        page.get_by_role("button", name="编辑日程或结果").click()
+        page.get_by_label("面试结果").select_option("passed")
+        page.get_by_label("面试复盘").fill(RETROSPECTIVE)
+        page.get_by_role("button", name="保存面试日程").click()
+        expect(page.get_by_text(RETROSPECTIVE, exact=False)).to_be_visible()
+        page.get_by_role("link", name="进入模拟面试").click()
+        expect(page).to_have_url(base + f"/interview-practice?schedule={refs['schedule']}")
+        expect(page.get_by_text("使用关联投递保存的 JD 和简历版本。")).to_be_visible()
+        page.goto(base + "/application-workspace?tab=analytics")
+        expect(page.get_by_text("面试通过率 · 1/1 · 样本不足")).to_be_visible()
+        expect(page.get_by_role("rowheader", name="库存定向版")).to_be_visible()
         page.goto(base + f"/project-recommendations?session={refs['discovery']}")
         page.get_by_role("link", name="在项目工作台关联仓库").click()
         expect(page.get_by_text("关联方案 · " + refs["proposal_name"])).to_be_visible()
@@ -79,7 +112,7 @@ def run_browser(email, refs):
         browser.close()
 
 
-def test_one_account_across_eight_stages(client, register_account, bearer_headers, workspace):
+def test_one_account_across_nine_stages(client, register_account, bearer_headers, workspace):
     # The application itself handles auth, files, workers, scoring, snapshots and persistence.
     # Deterministic model responses keep the same chain reproducible across runs.
     host = "127.0.0.1"
@@ -112,8 +145,13 @@ def test_one_account_across_eight_stages(client, register_account, bearer_header
     assert ability["status"] == "self_reported" and ability["sources"]
     refs.update(resume=resume_id, confirmed_resume=content_id, career=career["analysis"]["id"])
 
-    job = write(client, "POST", "/jobs", headers, {"position_name": profile["target_position"], "job_description": JD}, 201)
+    job = write(client, "POST", "/jobs/import-jd", headers, {
+        "position_name": profile["target_position"], "job_description": JD,
+        "source_url": "https://example.invalid/synthetic-inventory-role",
+    }, 201)
     job_url = f"/jobs/{job['id']}"
+    write(client, "PATCH", job_url, headers, {"favorite": True})
+    assert [item["id"] for item in read(client, "/jobs", headers, {"favorite": True})] == [job["id"]]
     write(client, "POST", job_url + "/parse", headers, consent, 202)
     assert run_job_once(session_factory(), JobProvider)
     job = read(client, job_url, headers)
@@ -125,7 +163,31 @@ def test_one_account_across_eight_stages(client, register_account, bearer_header
     assert match["content_id"] == content_id and match["overall_score"] is not None
     refs.update(job=job["id"], match=match["id"])
 
-    discovery = write(client, "POST", "/discovery/sessions", headers, {"title": "库存学习项目", "weekly_hours": 3}, 201)
+    saved_resume = write(client, "POST", "/resume-versions", headers, {
+        "request_id": str(uuid4()), "content_id": content_id, "target_job_id": job["id"],
+        "version_name": "库存定向版", "change_summary": "保留已确认的原文",
+        "block_numbers": [row["number"] for row in confirmed.json()["blocks"]], "confirmed": True,
+    }, 201)
+    application = write(client, "POST", "/applications", headers, {
+        "job_id": job["id"], "request_id": str(uuid4()), "resume_version_id": saved_resume["id"],
+        "job_match_id": match["id"], "next_action": "准备库存问题复盘",
+    }, 201)
+    application = write(client, "POST", f"/applications/{application['id']}/status", headers, {
+        "request_id": str(uuid4()), "revision": application["revision"], "status": "applied"
+    })
+    application = write(client, "POST", f"/applications/{application['id']}/status", headers, {
+        "request_id": str(uuid4()), "revision": application["revision"], "status": "interview_1"
+    })
+    appointment = {"timezone": "UTC", "interview_round": "interview_1", "interview_type": "online",
+                   "scheduled_at": (datetime.now(UTC).replace(second=0, microsecond=0) + timedelta(hours=2)).isoformat()}
+    schedule = write(client, "POST", "/interview-schedules", headers, {
+        **appointment, "application_id": application["id"], "request_id": str(uuid4()),
+    }, 201)
+    assert schedule["application_id"] == application["id"]
+    refs.update(application=application["id"], resume_version=saved_resume["id"], schedule=schedule["id"])
+    discovery = write(client, "POST", "/discovery/sessions", headers, {
+        "title": "库存学习项目", "weekly_hours": 3, "application_id": application["id"], "job_match_id": match["id"]
+    }, 201)
     sid = discovery["id"]
     background = read(client, f"/discovery/sessions/{sid}", headers)["background"]
     assert background["career_analysis_id"] == refs["career"]
@@ -186,11 +248,13 @@ def test_one_account_across_eight_stages(client, register_account, bearer_header
     assert read(client, repo_url + "/mastery-report", headers)["attempts"][0]["id"] == attempt
     refs.update(repository=repo, commit=commit, quiz=quiz, code_attempt=attempt, live_github=live_github)
 
-    opts = {"mode": "project", "repository_id": repo, "job_id": job["id"], "commit": commit}
+    opts = {"mode": "project", "repository_id": repo, "interview_schedule_id": schedule["id"], "commit": commit}
     prep = write(client, "POST", "/interviews/prepare", headers, opts)
     assert prep["sources"]["plan"]["prd_id"] == revised["id"]
     assert prep["sources"]["job"]["match_id"] == match["id"]
-    assert prep["sources"]["resume"]["content_id"] == content_id
+    assert prep["sources"]["resume_version"]["id"] == saved_resume["id"]
+    assert prep["sources"]["application"]["id"] == application["id"]
+    assert prep["sources"]["application"]["schedule_id"] == schedule["id"]
     assert prep["sources"]["analysis_id"] == refs["career"]
     assert prep["sources"]["repository"]["commit"] == commit
     assert "practice" in prep["source_types"] and prep["has_project_code"]
@@ -245,6 +309,32 @@ def test_one_account_across_eight_stages(client, register_account, bearer_header
     assert progress["history"][0]["assessment_id"] == assessment["id"]
     assert read(client, "/learning/paths", headers)[0]["version"] > roadmap["version"]
     refs.update(learning_path=roadmap["id"], learning_assessment=assessment["id"], learning_submission=submission["id"])
+    linked_path = write(client, "POST", "/learning/paths/generate", headers, {
+        "weekly_minutes": 150, "goal": "复盘项目面试", "interview_report_id": report["id"]
+    }, 201)
+    assert linked_path["data"]["source"]["application_id"] == application["id"]
+    assert linked_path["data"]["source"]["match_id"] == match["id"]
+    refs["linked_learning_path"] = linked_path["id"]
+
+    overview = read(client, "/dashboard", headers)
+    assert overview["target_position"] == profile["target_position"] and overview["profile_complete"]
+    assert overview["skills"]["verified"] == 1
+    assert overview["match"]["id"] == match["id"]
+    assert overview["match"]["gaps"] == [
+        {"name": item["name"], "status": item["status"]}
+        for item in read(client, f"/job-matches/{match['id']}/gaps", headers)[:4]
+    ]
+    assert overview["projects"][0]["id"] == proposal
+    assert overview["projects"][0]["selected"]
+    assert overview["tasks"]
+    assert overview["interview"]["session_id"] == interview["id"]
+    assert overview["interview"]["score"] == report["score"]
+    assert overview["applications"] == {"interview_1": 1}
+    assert overview["next_action"] == {"kind": "application", "text": "准备库存问题复盘",
+                                       "application_id": application["id"]}
+    foreign_overview = read(client, "/dashboard", outsider)
+    assert not foreign_overview["projects"] and not foreign_overview["tasks"] and not foreign_overview["applications"]
+    assert foreign_overview["match"] is None and foreign_overview["interview"] is None
 
     for route in (f"/career/profile?analysis_id={refs['career']}", f"/jobs/{job['id']}",
                   f"/discovery/sessions/{sid}", f"/prds/{revised['id']}", repo_url, iv + "/report",
@@ -254,9 +344,27 @@ def test_one_account_across_eight_stages(client, register_account, bearer_header
     if os.getenv("CAREER_ACCEPTANCE_BROWSER"):
         run_browser(email, refs)
         refs["same_account_browser"] = True
+    else:
+        write(client, "PATCH", f"/interview-schedules/{schedule['id']}", headers, {
+            **appointment, "revision": schedule["revision"], "result": "passed", "retrospective": RETROSPECTIVE,
+        })
+    updated = read(client, "/interview-schedules", headers)
+    assert [(item["id"], item["result"], item["retrospective"]) for item in updated] == [
+        (schedule["id"], "passed", RETROSPECTIVE)
+    ]
+    assert read(client, "/interview-schedules", outsider) == []
+    history = read(client, f"/applications/{application['id']}/history", headers)
+    assert [item["new_status"] for item in history] == ["interview_1", "applied", "wishlist"]
+    analytics = read(client, "/job-analytics", headers)
+    assert analytics["sample_insufficient"]
+    assert {key: analytics["summary"][key] for key in ("submitted", "invited", "interview_passed")} == {
+        "submitted": 1, "invited": 1, "interview_passed": 1,
+    }
+    assert analytics["summary"]["rates"]["interview_passed"]["rate"] is None
     if os.getenv("CAREER_ACCEPTANCE_REPORT"):
         path = Path(os.environ["CAREER_ACCEPTANCE_REPORT"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({**refs, "linked_evidence": sorted(expected), "match_score": match["overall_score"],
+                                    "interview_passed": analytics["summary"]["interview_passed"],
                                     "assessment_score": score["result"]["score"]}, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -2,22 +2,23 @@ import { Orbit, Sparkles } from 'lucide-react'
 import { Link } from 'react-router'
 import { useAuth } from '../../hooks/AuthProvider'
 import { routes } from '../../routes'
+import type { Dashboard } from '../../services/dashboard'
 
-export function Welcome() {
-  const { account, checking, profile } = useAuth()
-  const target = profile.state === 'ready' ? profile.data.target_position || '未设置'
-    : checking || (account && profile.state === 'loading') ? '读取中'
-    : profile.state === 'error' ? '读取失败' : account ? '未设置' : '登录后查看'
+export function Welcome({ data, failed }: { data?: Dashboard; failed?: boolean }) {
+  const { account } = useAuth()
   return (
     <section className="hero" aria-labelledby="welcome-title">
       <div className="hero-content">
         <h1 id="welcome-title">{account ? `你好，${account.username}` : '你好，欢迎使用'}<br />AI Career Copilot</h1>
-        <p>从认识自己开始，逐步建立 AI 产品经理求职竞争力。</p>
+        <p>{account ? '查看你的求职进展，继续推进下一步。' : '从认识自己开始，逐步建立 AI 产品经理求职竞争力。'}</p>
         <div className="hero-actions">
-          <Link className="button button-primary" to={routes.career.path}>
-            <Sparkles size={18} aria-hidden="true" /> 开始我的职业分析
+          <Link className="button button-primary" to={account ? routes.profile.path : routes.login.path}>
+            <Sparkles size={18} aria-hidden="true" /> {account ? '编辑个人档案' : '登录查看我的进展'}
           </Link>
-          <span className="hero-target"><span>当前目标岗位</span><strong>{target}</strong></span>
+          {account && <span className="hero-target"><span>当前目标岗位</span><strong>
+            {data ? data.target_position ?? '未设置' : failed ? '读取失败' : '读取中'}
+          </strong></span>}
+          {data && <span className="hero-target">个人档案 · {data.profile_complete ? '已创建' : '待填写'}</span>}
         </div>
       </div>
       <div className="hero-decoration" aria-hidden="true">

@@ -1,3 +1,5 @@
+from re import fullmatch
+
 from fastapi.responses import JSONResponse
 
 from app.core.errors import ApiError
@@ -6,15 +8,23 @@ from app.services.resume_parser import MAX_FILE_BYTES
 UPLOAD_LIMITS = {
     "/api/v1/resumes/upload": (MAX_FILE_BYTES, "FILE_TOO_LARGE", "简历文件最多 10 MB"),
     "/api/v1/jobs/import": (2 * 1024 * 1024, "JOB_FILE_TOO_LARGE", "岗位文件最多 2 MB"),
+    "/api/v1/learning/resources/upload": (1024 * 1024, "LEARNING_FILE_LIMIT", "学习文件超过当前大小限制"),
 }
+ASSIGNMENT_LIMIT = (1024 * 1024, "LEARNING_FILE_LIMIT", "作业文件超过当前大小限制")
 
-class ResumeUploadLimit:
+class UploadLimit:
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        limit = UPLOAD_LIMITS.get(scope.get("path"))
-        if scope["type"] != "http" or not limit or scope["method"] != "POST":
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+        path = scope["path"].rstrip("/")
+        limit = UPLOAD_LIMITS.get(path)
+        if limit is None and fullmatch(r"/api/v1/learning/assignments/[^/]+/upload", path):
+            limit = ASSIGNMENT_LIMIT
+        if limit is None:
             await self.app(scope, receive, send)
             return
 

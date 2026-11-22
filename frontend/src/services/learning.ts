@@ -7,8 +7,10 @@ export type Diagnosis = { target: string; suggested_minutes: number | null; cate
   topic: string; title: string; category: string; status: string; confidence: string; level: number | null;
   last_verified_at: string | null; priority: number; evidence: Evidence[] }[] }
 export type Lesson = { explanation?: string; example?: string; question?: string; next_step?: string; summary?: string; text?: string }
+export type InterviewSource = { report_id: number; session_id: number; target: string; job_id: number | null;
+  job_revision: number | null; match_id: number | null; application_id: number | null; weaknesses: string[] }
 export type Path = { id: number; version: number; data: { target: string; goal: string; reason: string; weekly_minutes: number;
-  estimated_weeks: number; modules: (Topic & { reason: string })[]; verified: string[]; mentor?: Lesson } }
+  estimated_weeks: number; modules: (Topic & { reason: string })[]; verified: string[]; mentor?: Lesson; source?: InterviewSource } }
 export type Task = { id: number; status: string; actual_minutes: number; topic: string; due: string; data: Topic & { checkpoint?: string } }
 export type Session = { id: number; topic: string; mode: string; summary: Lesson }
 export type Message = { id: number; role: string; data: Lesson }
@@ -38,8 +40,9 @@ export const learning = {
   diagnosis: () => request<Diagnosis>(base + '/diagnosis'),
   progress: () => request<Progress>(base + '/progress'),
   paths: () => request<Path[]>(base + '/paths'),
-  path: (weekly_minutes: number, goal: string, id?: number) =>
-    send<Path>(id ? '/paths/' + id : '/paths/generate', { weekly_minutes, goal }, id ? 'PATCH' : 'POST'),
+  path: (weekly_minutes: number, goal: string, id?: number, interview_report_id?: number) =>
+    send<Path>(id ? '/paths/' + id : '/paths/generate', { weekly_minutes, goal, interview_report_id }, id ? 'PATCH' : 'POST'),
+  interviewSource: (id: number) => request<InterviewSource>(base + '/interview-sources/' + id),
   daily: (day: string) => request<{ tasks: Task[]; date: string; minutes: number }>(base + '/tasks/daily?day=' + day),
   addTask: (topic: string, minutes: number, day: string) => send<Task>('/tasks?day=' + day, { topic, minutes }),
   task: (id: number, status: string, actual_minutes: number) => send<Task>('/tasks/' + id, { status, actual_minutes }, 'PATCH'),

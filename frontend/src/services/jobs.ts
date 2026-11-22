@@ -34,6 +34,7 @@ function json(method: string, body: unknown): RequestInit {
 export const jobsApi = {
   list: () => request<Job[]>('/jobs'),
   history: () => request<Match[]>('/job-matches'),
+  matchDetail: (id: number) => request<Match>(`/job-matches/${id}`),
   versions: () => request<Version[]>('/jobs/candidate-versions'),
   detail: (id: number) => request<Job>(`/jobs/${id}`),
   create: (body: Record<string, string | null>) => request<Job>('/jobs', json('POST', body)),

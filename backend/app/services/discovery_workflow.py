@@ -19,6 +19,7 @@ from app.models.discovery import (
 from app.schemas.discovery import Opportunity, PainResult, PRD_FIELDS, PrdModel, Projects, Turn
 from app.services.competitor_analysis_service import analyze_competitors
 from app.services.interest_discovery_service import background, interests, recent_messages, validate_turn
+from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.market_research_service import SEARCH_HOST, collect_sources
 from app.services.opportunity_evaluation_service import LABELS, evaluate
 from app.services.pain_point_service import evidence_entries, validate_pains
@@ -76,6 +77,8 @@ def latest_prd(db, project_id):
                      .order_by(ProductPrd.version.desc()).limit(1).with_for_update())
 
 def inputs(db, session, body):
+    if session.source_snapshot and not session.job_match_id:
+        raise ApiError(409, "CAREER_CONTEXT_REMOVED", "关联匹配报告已删除，历史会话可查阅，请新建探索会话继续")
     if body.kind in {"turn", "pain"}:
         messages = recent_messages(db, session.id)
         if body.kind == "turn":
@@ -84,7 +87,7 @@ def inputs(db, session, body):
             messages.append({"id": None, "role": "user", "text": redact_text(body.message)})
         return scrub({"messages": messages, "known_interests": interests(db, session.id), "mode": session.mode,
                       "direction": session.direction, "weekly_hours": session.weekly_hours,
-                      "background": background(db, session.user_id)})
+                      "background": background(db, session.user_id, session.source_snapshot)})
     if body.kind in {"research", "opportunity"}:
         pain = in_session(db, PainPoint, session, body.reference_id)
         if body.kind == "research":
@@ -99,7 +102,8 @@ def inputs(db, session, body):
             raise ApiError(422, "DISCOVERY_RESEARCH_MISMATCH", "请选择该痛点的市场研究")
         return scrub({"pain_point_id": pain.id, "pain_revision": pain.revision, "pain": pain.data,
                       "research_id": research.id if research else None,
-                      "evidence": source_map(pain.data, research, background(db, session.user_id)), "dimensions": LABELS})
+                      "evidence": source_map(pain.data, research, background(db, session.user_id, session.source_snapshot)),
+                      "dimensions": LABELS})
     if body.kind == "recommend":
         opportunity = in_session(db, OpportunityAnalysis, session, body.reference_id)
         pain = in_session(db, PainPoint, session, opportunity.pain_point_id)
@@ -108,7 +112,7 @@ def inputs(db, session, body):
         previous = scoped(db, ProjectRecommendation, session, 8) if body.regenerate else []
         return scrub({"opportunity_id": opportunity.id, "opportunity": opportunity.data, "pain": pain.data,
                       "market_research": research.data if research else None,
-                      "background": background(db, session.user_id), "interests": interests(db, session.id),
+                      "background": background(db, session.user_id, session.source_snapshot), "interests": interests(db, session.id),
                       "direction": session.direction, "weekly_hours": session.weekly_hours,
                       "previous_directions": [item.data["name"] for item in previous]})
     project = in_session(db, ProjectRecommendation, session, body.reference_id)
@@ -156,7 +160,7 @@ def enqueue(db, session, body, settings):
     db.commit()
     return task
 
-def compute(task, settings, provider_factory, search):
+def compute(task, settings, provider_factory, search, factory):
     if task.provider != provider_fingerprint(settings):
         raise ApiError(409, "MODEL_CONFIG_CHANGED", "模型配置已变，请重新预览")
     payload = task.payload
@@ -164,7 +168,9 @@ def compute(task, settings, provider_factory, search):
         sources = search(settings, payload["queries"], payload["sources"])
         if not sources:
             return {"sources": [], "competitors": [], "findings": [], "status": "insufficient_results"}
-    provider = provider_factory(settings)
+    module = "market_research" if task.kind == "research" else "discovery"
+    provider = task_provider(provider_factory, settings, factory,
+                             TaskContext(module, task.user_id, task.id, task.attempt, task.created_at, task.started_at))
     try:
         if task.kind == "turn":
             return validate_turn(provider.generate(prompts.TURN, payload, Turn), payload["messages"]).model_dump()
@@ -243,7 +249,7 @@ def run_discovery_once(factory, provider_factory=Provider, search=collect_source
         db.commit()
     error = None
     try:
-        result = compute(task, get_settings(), provider_factory, search)
+        result = compute(task, get_settings(), provider_factory, search, factory)
         with factory() as db:
             db.get(DiscoverySession, task.session_id, with_for_update=True)
             current = db.get(DiscoveryTask, task.id, with_for_update=True)

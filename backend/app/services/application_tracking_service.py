@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.core.errors import ApiError
 from app.models.application import ApplicationStatusHistory, JobApplication
 from app.models.user import User
+from app.services.career_context import application_match
 from app.services.job_workflow import digest, owned_job, rows
 from app.services.resume_version_service import owned_version
 from app.services.resumes import utc_now
@@ -50,6 +51,11 @@ def validate_version(db, row, version_id):
         raise ApiError(422, "RESUME_VERSION_JOB_MISMATCH", "请选择此岗位对应的简历版本")
 
 
+def pin_match(db, row, match_id=None):
+    selected = application_match(db, row.user_id, row, match_id)
+    row.snapshot = {**row.snapshot, "match_id": selected.id if selected else None}
+
+
 def validate_date(value, preserve=None):
     when = naive_utc(value)
     if when and when > utc_now():
@@ -65,7 +71,7 @@ def append_status(db, row, key, previous, note=None):
 def create(db, user_id, body):
     db.get(User, user_id, with_for_update=True)
     key = str(body.request_id)
-    signature = digest(body.model_dump(mode="json"))
+    signature = digest(body.model_dump(mode="json", exclude={"job_match_id"} if body.job_match_id is None else None))
     stmt = select(JobApplication).where(JobApplication.user_id == user_id)
     existing = db.scalar(stmt.where(JobApplication.request_id == key).with_for_update())
     if existing:
@@ -84,6 +90,7 @@ def create(db, user_id, body):
                          applied_at=sent_at, current_status="applied" if sent_at else "wishlist",
                          valid_submission=body.valid_submission)
     validate_version(db, row, body.resume_version_id)
+    pin_match(db, row, body.job_match_id)
     db.add(row)
     db.flush()
     append_status(db, row, key, None)
@@ -100,6 +107,8 @@ def edit(db, user_id, identifier, body):
             raise ApiError(409, "APPLICATION_RESUME_FROZEN", "该投递已绑定发出时的简历版本")
         validate_version(db, row, updates["resume_version_id"])
         row.resume_version_id = updates["resume_version_id"]
+        row.snapshot = {**row.snapshot, "match_id": None}
+        pin_match(db, row)
     if "applied_at" in updates:
         if row.applied_at is None:
             raise ApiError(422, "APPLICATION_STATUS_REQUIRED", "请通过状态变更记录已投递")
@@ -132,7 +141,9 @@ def move(db, user_id, identifier, body):
         raise ApiError(409, "APPLICATION_ALREADY_SENT", "已投递记录不能退回待投递，可记录后续进度或撤回")
     if body.status in STATUSES[1:7] and row.applied_at is None:
         row.applied_at = validate_date(body.applied_at, utc_now())
-        row.snapshot = snapshot(db, owned_job(db, user_id, row.job_id, lock=True))
+        if row.snapshot.get("match_id") is None:
+            row.snapshot = snapshot(db, owned_job(db, user_id, row.job_id, lock=True))
+            pin_match(db, row)
     row.current_status = body.status
     row.revision += 1
     append_status(db, row, key, previous, body.notes)

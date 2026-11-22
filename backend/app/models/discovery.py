@@ -11,6 +11,9 @@ class Owned:
 
 class DiscoverySession(Owned, Base):
     __tablename__ = "discovery_sessions"
+    job_match_id: Mapped[int | None] = mapped_column(ForeignKey("job_matches.id", name="fk_discovery_job_match", ondelete="SET NULL"), index=True)
+    application_id: Mapped[int | None] = mapped_column(ForeignKey("job_applications.id", name="fk_discovery_application", ondelete="SET NULL"), index=True)
+    source_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
     title: Mapped[str] = mapped_column(String(150))
     mode: Mapped[str] = mapped_column(String(16))
     direction: Mapped[str | None] = mapped_column(String(180))

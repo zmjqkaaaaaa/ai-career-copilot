@@ -1,0 +1,37 @@
+{
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+	@https protocol https
+	header @https Strict-Transport-Security "max-age=31536000"
+
+	@backend path /api /api/* /health /ready
+	handle @backend {
+		request_body {
+			max_size 11MiB
+		}
+		reverse_proxy api:8000
+	}
+
+	@assets path /assets/*
+	handle @assets {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

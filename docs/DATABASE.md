@@ -118,3 +118,15 @@ Alembic 版本 `20261121_0003` 新增 `job_positions`、`job_requirements`、`jo
 ## 第九阶段求职执行迁移
 
 `20261121_0009` 为 `job_positions` 新增收藏、归档和来源元数据，并新增 `resume_versions`、`job_applications`、`application_status_history`、`interview_schedules`、`job_strategy_reports`。版本、投递与日程均有用户索引，投递时间使用用户与日期组合索引。投递绑定岗位及简历版本，状态历史和日程由投递管理。一旦有关联投递，岗位保留用于追溯。迁移降级会删除第九阶段数据，运行前须备份。关系图和历史保留规则见 [第九阶段说明](JOB_APPLICATIONS.md)。
+
+## 第十阶段 Sprint 2 迁移
+
+`20261121_0010` 新增 Worker 心跳和账户文件清理任务表。执行账户删除时，已有受限外键的投递、版本、画像和简历记录在一个事务内按依赖顺序移除，数据库再级联删除其余账号记录。待清理表保存随机文件键与重试信息。详见 [运行维护说明](OPERATIONS.md)。
+
+## 第十阶段 Sprint 3 迁移
+
+`20261121_0011` 为 `discovery_sessions` 添加两个可空外键，分别引用 `job_matches` 和 `job_applications`，并保存定向探索的来源快照。已存在的探索保留原有行为。匹配、投递、面试及学习的版本关联见 [跨模块流程](CROSS_MODULE_WORKFLOW.md)。
+
+## 第十阶段 Sprint 5 迁移
+
+`20261121_0012` 新增 `auth_rate_windows` 和 `llm_call_metrics`。新增看板和历史状态组合索引，对现有求职策略补充尝试次数。数据库连接启用 SQL 参数隐藏。详见 [性能与安全报告](PERFORMANCE_SECURITY.md)。

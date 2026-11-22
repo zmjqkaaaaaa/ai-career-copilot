@@ -1,9 +1,10 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { DiagnosisPanel, FeedbackPanel, LessonPanel, TaskPanel, masteryLabels, states } from '../components/learning/LearningPanels'
 import { errorMessage } from '../services/api'
 import { learning, type AIAction, type Assignment, type Catalog, type Job, type Message,
-  type Path, type Preview, type Progress, type Resource, type Session, type Submission, type Task } from '../services/learning'
+  type InterviewSource, type Path, type Preview, type Progress, type Resource, type Session, type Submission, type Task } from '../services/learning'
 
 const tabs = { home: '成长概览', diagnosis: '能力诊断', path: '学习路线', daily: '每日任务', mentor: 'AI 导师',
   resources: '学习资料', assignment: '作业中心', exam: '阶段测评', report: '成长报告' }
@@ -19,6 +20,7 @@ export function GrowthCenterPage() {
   const tab: Tab = requested && Object.hasOwn(tabs, requested) ? requested as Tab : 'home'
   const sessionId = Number(params.get('session')) || null
   const assessmentId = Number(params.get('assessment')) || null
+  const reportId = Number(params.get('report')) || null
   const topic = params.get('topic') || 'python'
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -34,6 +36,7 @@ export function GrowthCenterPage() {
   const [pathId, setPathId] = useState<number | null>(null)
   const [minutes, setMinutes] = useState<number | null>(null)
   const [goal, setGoal] = useState<string | null>(null)
+  const [source, setSource] = useState<InterviewSource | null>(null)
   const [mode, setMode] = useState('socratic')
   const [input, setInput] = useState('')
   const [kind, setKind] = useState<keyof typeof kinds>('text')
@@ -46,7 +49,9 @@ export function GrowthCenterPage() {
   const submissionKey = useRef<string | null>(null)
   const selected = catalog?.topics.find((item) => item.id === topic)
   const assignment = assignments.find((item) => item.id === topic)
-  const path = paths.find((row) => row.id === pathId) ?? paths[0]
+  const visiblePaths = tab === 'path' && reportId ? paths.filter((row) => row.data.source?.report_id === reportId) : paths
+  const path = visiblePaths.find((row) => row.id === pathId) ?? visiblePaths[0]
+  const currentSource = source?.report_id === reportId ? source : null
   const budget = minutes ?? paths[0]?.data.weekly_minutes ?? progress?.diagnosis.suggested_minutes ?? 140
   const objective = goal ?? paths[0]?.data.goal ?? ''
   const activeJob = jobs.find((row) => ['queued', 'running'].includes(row.state))
@@ -57,6 +62,14 @@ export function GrowthCenterPage() {
   const title = (key: string) => catalog?.topics.find((item) => item.id === key)?.title ?? key
   const nextTopic = path?.data.modules.find((item) => !tasks.some((task) => task.topic === item.id && task.status === 'completed'))
   const activeDay = dateKey()
+
+  useEffect(() => {
+    if (!reportId || tab !== 'path') return
+    let ignore = false
+    learning.interviewSource(reportId).then((data) => { if (!ignore) setSource(data) })
+      .catch((err) => { if (!ignore) setError(errorMessage(err)) })
+    return () => { ignore = true }
+  }, [tab, reportId])
 
   useEffect(() => {
     let ignore = false
@@ -130,7 +143,7 @@ export function GrowthCenterPage() {
     <section className="hero"><h1>成长中心</h1><p>根据目标岗位和已有证据安排学习，用作业和测评检验理解。</p></section>
     <nav className="career-tabs" aria-label="成长中心分区">{Object.entries(tabs).map(([key, label]) =>
       <button className="button button-outline" aria-pressed={tab === key} key={key} onClick={() => go(key as Tab)}>{label}</button>)}</nav>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <Feedback kind="error">{error}</Feedback>}
     {activeJob && <p className="job-status" role="status">AI 任务处理中…</p>}
     {failed && <div className="form-error" role="alert"><p>{messages[failed.error as keyof typeof messages] ?? '学习任务处理失败'}（{failed.error}）</p>
       <button className="button button-outline" disabled={busy || !!activeJob || failed.attempt >= 3 ||
@@ -159,22 +172,27 @@ export function GrowthCenterPage() {
     {tab === 'diagnosis' && progress && <DiagnosisPanel data={progress.diagnosis} />}
     {tab === 'path' && <>
       <section className="surface detail-panel"><h2>路线设置</h2>
+        {currentSource && <p>本次面试 · {currentSource.target} · 薄弱项 {currentSource.weaknesses.join('、') || '暂无记录'}</p>}
         <form className="account-form" onSubmit={(event) => { event.preventDefault(); void act(async () => {
-          await learning.path(budget, objective.trim()); setPathId(null)
+          await learning.path(budget, objective.trim(), undefined, reportId ?? undefined); setPathId(null)
         }) }}>
           <label>每周可投入（分钟）<input required type="number" min={15} max={1200} value={budget}
             onChange={(event) => setMinutes(Number(event.target.value))} /></label>
           <label>学习目标或兴趣<input maxLength={200} placeholder="例如用 Python 做岗位数据分析" value={objective}
             onChange={(event) => setGoal(event.target.value)} /></label>
-          <button className="button button-filled" disabled={busy}>{paths.length ? '按新目标调整路线' : '生成学习路线'}</button>
+          <button className="button button-filled" disabled={busy || Boolean(reportId && !currentSource)}>
+            {reportId ? '根据本次面试生成路线' : paths.length ? '按新目标调整路线' : '生成学习路线'}</button>
         </form>
       </section>
       {path && <section className="surface detail-panel grid gap-3">
         <label>路线版本<select value={path.id} onChange={(event) => setPathId(Number(event.target.value))}>
-          {paths.map((row) => <option key={row.id} value={row.id}>第 {row.version} 版</option>)}
+          {visiblePaths.map((row) => <option key={row.id} value={row.id}>第 {row.version} 版</option>)}
         </select></label>
         <h2>{path.data.target} · 每周 {path.data.weekly_minutes} 分钟</h2>
         <p>{path.data.reason} · 预计 {path.data.estimated_weeks} 周 · 已通过测评 {path.data.verified.length} 项</p>
+        {path.data.source && <p>来源 <Link className="application-link"
+          to={`/interview-practice?tab=report&session=${path.data.source.session_id}`}>面试报告 #{path.data.source.report_id}</Link>
+          {path.data.source.weaknesses.length > 0 && ` · ${path.data.source.weaknesses.join('、')}`}</p>}
         <ol className="grid gap-2">{path.data.modules.map((row, index) => <li key={row.id} className="career-detail">
           <h3>{index + 1}. {row.title} · {row.minutes} 分钟</h3>
           <p>先修 · {row.requires.map(title).join('、') || '无'}</p><p>{row.reason}</p>
@@ -187,7 +205,7 @@ export function GrowthCenterPage() {
     </>}
     {tab === 'daily' && <section className="surface detail-panel grid gap-3">
       <h2>今日安排 · {activeDay}</h2>
-      {!tasks.length && <p>当前暂无任务。可先生成路线，或在本周预算内补充任务。</p>}
+      {!tasks.length && <Feedback kind="empty">当前暂无任务。可先生成路线，或在本周预算内补充任务。</Feedback>}
       {tasks.map((item) => <TaskPanel key={item.id} task={item} busy={busy}
         change={(status, actual) => void act(async () => { await learning.task(item.id, status, actual) })}
         teach={() => go('mentor', item.topic)} />)}

@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .cache/
 work/
+/output/
 .venv/
 __pycache__/
 .pytest_cache/

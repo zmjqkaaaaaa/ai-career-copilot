@@ -13,6 +13,7 @@ from app.models.job import JobAnalysisTask, JobMatch, JobPosition, JobRequiremen
 from app.models.user import User
 from app.schemas.job import Advice
 from app.services.job_parser import JD_PROMPT, parse_jd
+from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.resumes import utc_now
 from app.services.skill_gap_service import ADVICE_PROMPT
 
@@ -118,13 +119,15 @@ def run_job_once(factory, provider_factory=Provider):
             db.commit()
             return False
         task.state, task.started_at = "running", utc_now()
+        owner = db.scalar(select(JobPosition.user_id).where(JobPosition.id == task.job_id))
         db.commit()
     result, error = None, None
     try:
         settings = get_settings()
         if not task.payload.get("approved") or task.payload["provider"] != provider_fingerprint(settings):
             raise ApiError(409, "MODEL_CONFIG_CHANGED", "请重新核对发送地址")
-        provider = provider_factory(settings)
+        provider = task_provider(provider_factory, settings, factory,
+                                 TaskContext("job_matching", owner, task.id, task.attempt, task.created_at, task.started_at))
         try:
             if task.kind == "parse":
                 result = parse_jd(provider, task.payload["source"])

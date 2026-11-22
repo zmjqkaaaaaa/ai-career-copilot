@@ -80,6 +80,7 @@ class ApplicationFields(Schema):
 class ApplicationCreate(ApplicationFields):
     job_id: Positive
     request_id: UUID
+    job_match_id: Positive | None = None
 
 
 class ApplicationPatch(ApplicationFields):

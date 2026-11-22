@@ -4,7 +4,8 @@ from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.table import Table
-from pypdf import PdfReader
+from pypdf import PdfReader, apply_configuration
+from pypdf.errors import LimitReachedError
 
 from app.core.errors import ApiError
 
@@ -13,6 +14,7 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_TEXT_CHARS = 30_000
 MAX_PDF_PAGES = 20
 MAX_DOCX_BYTES = 32 * 1024 * 1024
+MAX_PDF_STREAM_BYTES = 32 * 1024 * 1024
 MAX_BLOCKS = 500
 
 def validate_file(stream, file_type: str) -> None:
@@ -49,17 +51,30 @@ def split_blocks(text: str):
             yield paragraph.strip()
 
 def pdf_sections(stream):
-    reader = PdfReader(stream)
-    if reader.is_encrypted:
-        raise ApiError(422, "ENCRYPTED_PDF", "请先解除 PDF 密码保护再上传")
-    if len(reader.pages) > MAX_PDF_PAGES:
-        raise ApiError(413, "PDF_TOO_LONG", "PDF 最多支持 20 页")
-    for number, page in enumerate(reader.pages, 1):
-        contents = page.get_contents()
-        if contents is not None and len(contents.get_data()) > MAX_DOCX_BYTES:
-            raise ApiError(413, "PDF_TOO_COMPLEX", "PDF 页面内容超过处理上限")
-        for paragraph in split_blocks(page.extract_text() or ""):
-            yield f"第 {number} 页", paragraph
+    try:
+        with apply_configuration(
+            maximum_declared_stream_length=MAX_PDF_STREAM_BYTES,
+            array_based_stream_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            zlib_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            lzw_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            brotli_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            run_length_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            jbig2_maximum_output_length=MAX_PDF_STREAM_BYTES,
+            stream_decoding_work_maximum_length=2 * MAX_PDF_STREAM_BYTES,
+            page_tree_maximum_entries=128,
+            jbig2dec_binary=None,
+            disable_legacy_handling=True,
+        ):
+            reader = PdfReader(stream)
+            if reader.is_encrypted:
+                raise ApiError(422, "ENCRYPTED_PDF", "请先解除 PDF 密码保护再上传")
+            if len(reader.pages) > MAX_PDF_PAGES:
+                raise ApiError(413, "PDF_TOO_LONG", "PDF 最多支持 20 页")
+            for number, page in enumerate(reader.pages, 1):
+                for paragraph in split_blocks(page.extract_text() or ""):
+                    yield f"第 {number} 页", paragraph
+    except LimitReachedError:
+        raise ApiError(413, "PDF_TOO_COMPLEX", "PDF 内容超过处理上限") from None
 
 def docx_sections(stream):
     document = Document(stream)

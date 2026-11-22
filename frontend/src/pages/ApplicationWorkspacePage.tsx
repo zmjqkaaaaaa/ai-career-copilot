@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { AnalyticsPanel, PeriodForm, StrategyPanel, Totals } from '../components/applications/Analytics'
@@ -7,14 +8,14 @@ import { ResumeVersions } from '../components/applications/ResumeVersions'
 import { Schedules } from '../components/applications/Schedules'
 import { appointmentTime, dateLabel, JobName, Panel } from '../components/applications/shared'
 import { errorMessage } from '../services/api'
-import { applications, statuses, type Analytics, type Period, type ResumeVersion } from '../services/applications'
+import { applications, statuses, type Analytics, type Period, type PipelineData, type ResumeVersion, type Status } from '../services/applications'
 
 const tabs = {
   overview: '求职概览', positions: '岗位发现', favorites: '岗位收藏', versions: '简历版本',
   board: '投递看板', schedules: '面试日程', analytics: '求职统计', strategy: 'AI 策略',
 } as const
 type Tab = keyof typeof tabs
-type PipelineData = Awaited<ReturnType<typeof applications.pipeline>>
+const BOARD_PAGE_SIZE = 30
 
 export function ApplicationWorkspacePage() {
   const [params, setParams] = useSearchParams()
@@ -23,7 +24,8 @@ export function ApplicationWorkspacePage() {
   const job = Number(params.get('job')) || null
   const application = Number(params.get('application')) || null
   const version = Number(params.get('version')) || null
-  const [pipeline, setPipeline] = useState<PipelineData | null>(null)
+  const [pipelineState, setPipeline] = useState<{ tab: Tab; value: PipelineData } | null>(null)
+  const pipeline = pipelineState?.tab === tab ? pipelineState.value : null
   const [versions, setVersions] = useState<ResumeVersion[]>([])
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [overview, setOverview] = useState<Analytics | null>(null)
@@ -34,12 +36,20 @@ export function ApplicationWorkspacePage() {
 
   useEffect(() => {
     let active = true
-    Promise.all([applications.pipeline(), applications.versions(), applications.analytics({})])
-      .then(([data, items, counts]) => {
-        if (active) { setPipeline(data); setVersions(items); setOverview(counts) }
-      }).catch((failure) => { if (active) setError(errorMessage(failure)) })
+    const pending: Promise<void>[] = []
+    if (tab === 'overview' || tab === 'board' || tab === 'schedules') {
+      const limit = tab === 'board' ? BOARD_PAGE_SIZE : tab === 'overview' ? 5 : undefined
+      pending.push(applications.pipeline(limit).then((value) => { if (active) setPipeline({ tab, value }) }))
+    }
+    if (tab === 'positions' || tab === 'favorites' || tab === 'versions' || tab === 'board') {
+      pending.push(applications.versions().then((data) => { if (active) setVersions(data) }))
+    }
+    if (tab === 'overview') {
+      pending.push(applications.analytics({}).then((data) => { if (active) setOverview(data) }))
+    }
+    void Promise.all(pending).catch((failure) => { if (active) setError(errorMessage(failure)) })
     return () => { active = false }
-  }, [refresh])
+  }, [tab, refresh])
 
   useEffect(() => {
     if (tab !== 'analytics') return
@@ -62,6 +72,24 @@ export function ApplicationWorkspacePage() {
     setParams(key && id ? { tab: next, [key]: String(id) } : { tab: next })
   }
 
+  function loadMore(status: Status) {
+    const last = pipeline?.columns[status].at(-1)
+    if (!last) return
+    void run(async () => {
+      const page = await applications.boardPage(status, last, BOARD_PAGE_SIZE + 1)
+      setPipeline((snapshot) => {
+        if (snapshot?.tab !== 'board') return snapshot
+        const current = snapshot.value
+        const existing = current.columns[status]
+        if (existing.at(-1)?.id !== last.id || !current.has_more) return snapshot
+        const known = new Set(existing.map((row) => row.id))
+        const rows = page.slice(0, BOARD_PAGE_SIZE).filter((row) => !known.has(row.id))
+        return { ...snapshot, value: { ...current, columns: { ...current.columns, [status]: [...existing, ...rows] },
+          has_more: { ...current.has_more, [status]: rows.length > 0 && page.length > BOARD_PAGE_SIZE } } }
+      })
+    }, false)
+  }
+
   const records = Object.values(pipeline?.columns ?? {}).flat()
     .sort((first, second) => second.updated_at.localeCompare(first.updated_at) || second.id - first.id)
   return <div className="career-page application-workspace">
@@ -71,16 +99,18 @@ export function ApplicationWorkspacePage() {
         <Link key={key} className={`button ${key === tab ? 'button-filled' : 'button-outline'}`}
           to={`?tab=${key}`} onClick={() => setError('')} aria-current={key === tab ? 'page' : undefined}>{label}</Link>)}
     </nav>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <Feedback kind="error">{error}</Feedback>}
     {tab === 'overview' && <Panel title="求职概览">
       <p>目标岗位 · {pipeline?.target || '尚未在个人档案设置'}</p>
       {overview && <Totals counts={overview.summary} />}
-      {!pipeline && !error && <p role="status">正在读取工作台…</p>}
+      {!pipeline && !error && <Feedback kind="loading">正在读取工作台…</Feedback>}
       <div className="career-grid">
         <div><h3>下一步行动</h3><ul className="application-list">
-          {records.filter((row) => row.next_action && !['offer', 'rejected', 'withdrawn'].includes(row.current_status)).slice(0, 5)
-            .map((row) => <li key={row.id}><Link className="application-link" to={`?tab=board&application=${row.id}`}><JobName row={row} /></Link><span>{row.next_action}</span></li>)}
-          {!records.some((row) => row.next_action && !['offer', 'rejected', 'withdrawn'].includes(row.current_status)) && <li>暂无待办事项。</li>}
+          {pipeline?.next_actions?.map((row) => <li key={row.id}>
+            <Link className="application-link" to={`?tab=board&application=${row.id}`}><JobName row={row} /></Link>
+            <span>{row.next_action}</span>
+          </li>)}
+          {!pipeline?.next_actions?.length && <li>暂无待办事项。</li>}
         </ul></div>
         <div><h3>即将到来的面试</h3><ul className="application-list">
           {pipeline?.upcoming.map((row) => <li key={row.id}>
@@ -104,6 +134,7 @@ export function ApplicationWorkspacePage() {
     {tab === 'versions' && <ResumeVersions key={`${job}-${version}`} target={job} selected={version}
       versions={versions} run={run} error={setError} busy={busy} />}
     {tab === 'board' && <Pipeline columns={pipeline?.columns} selected={application} select={(id) => choose('board', 'application', id)}
+      counts={pipeline?.counts} more={pipeline?.has_more} loadMore={loadMore}
       versions={versions} refresh={refresh} run={run} error={setError} busy={busy} />}
     {tab === 'schedules' && <Schedules records={records} target={application}
       selectedId={Number(params.get('schedule')) || null} run={run} error={setError} refresh={refresh} busy={busy} />}

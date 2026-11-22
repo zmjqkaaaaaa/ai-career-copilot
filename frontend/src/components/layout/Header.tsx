@@ -39,8 +39,9 @@ export function Header({ route, menuOpen, onMenuToggle }: HeaderProps) {
           <nav className="breadcrumbs" aria-label="面包屑">
             {route.path === routes.dashboard.path
               ? <span>{route.group}</span>
-              : <Link to={routes.dashboard.path}>工作台</Link>}
-            {route.group !== '工作台' && <><ChevronRight size={13} aria-hidden="true" /><span>{route.group}</span></>}
+              : <Link to={routes.dashboard.path}>{routes.dashboard.group}</Link>}
+            {route.path !== routes.dashboard.path && route.group !== route.title &&
+              <><ChevronRight size={13} aria-hidden="true" /><span>{route.group}</span></>}
             <ChevronRight size={13} aria-hidden="true" />
             <span aria-current="page">{route.title}</span>
           </nav>

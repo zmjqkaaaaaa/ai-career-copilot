@@ -1,5 +1,6 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { InterviewReport, References, scoreText } from '../components/interview/InterviewReport'
 import { errorMessage } from '../services/api'
 import { interview, type Detail, type Options, type Preparation, type Preview, type Report, type Session,
@@ -34,6 +35,10 @@ export function InterviewPracticePage() {
     const appointment = Number(params.get('schedule'))
     if (appointment > 0 && Number.isSafeInteger(appointment)) {
       return { ...INITIAL, mode: 'combined', interview_schedule_id: appointment }
+    }
+    const application = Number(params.get('application'))
+    if (application > 0 && Number.isSafeInteger(application)) {
+      return { ...INITIAL, mode: 'combined', application_id: application }
     }
     const repository = Number(params.get('repository'))
     const commit = params.get('commit')
@@ -70,10 +75,10 @@ export function InterviewPracticePage() {
 
   useEffect(() => {
     let ignore = false
-    interview.options().then((data) => { if (!ignore) setOptions(data) })
+    interview.options(setup.application_id, setup.interview_schedule_id).then((data) => { if (!ignore) setOptions(data) })
       .catch((e) => { if (!ignore) setError(errorMessage(e)) })
     return () => { ignore = true }
-  }, [])
+  }, [setup.application_id, setup.interview_schedule_id])
 
   useEffect(() => {
     let ignore = false
@@ -143,7 +148,7 @@ export function InterviewPracticePage() {
     <section className="hero"><h1>AI 面试训练</h1><p>围绕目标岗位逐题练习，复盘回答中的证据、技术理解和改进动作。</p></section>
     <nav className="career-tabs" aria-label="面试训练分区">{Object.entries(TABS).map(([key, name]) =>
       <button key={key} className="button button-outline" aria-pressed={tab === key} onClick={() => navigate(key as Tab)}>{name}</button>)}</nav>
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <Feedback kind="error">{error}</Feedback>}
     {tab === 'prepare' && options && <div className="career-columns">
       <section className="surface detail-panel"><h2>选择资料和训练方式</h2>
         <form className="account-form" onSubmit={(e) => {
@@ -156,14 +161,16 @@ export function InterviewPracticePage() {
             setPrepared({ data: await interview.prepare(value), setup: value })
           }, false)
         }}>
-          <label>目标岗位<input placeholder={options.target} maxLength={150} value={setup.target ?? ''}
+          <label>目标岗位<input placeholder={options.target} maxLength={150}
+            value={setup.application_id || setup.interview_schedule_id ? options.target : (setup.target ?? '')}
+            readOnly={Boolean(setup.application_id || setup.interview_schedule_id)}
             onChange={(e) => change({ target: e.target.value })} /></label>
           <label>面试模式<select value={setup.mode} onChange={(e) => change({ mode: e.target.value })}>{choices(options.modes)}</select></label>
           <label>难度<select value={setup.difficulty} onChange={(e) => change({ difficulty: e.target.value })}>{choices(options.difficulties)}</select></label>
           <label>面试官风格<select value={setup.style} onChange={(e) => change({ style: e.target.value })}>{choices(options.styles)}</select></label>
           <label>总时长（分钟）<input type="number" required min={setup.mode === 'combined' ? 7 : 5} max={60}
             value={setup.minutes} onChange={(e) => change({ minutes: Number(e.target.value) })} /></label>
-          {setup.interview_schedule_id ? <p>使用关联投递保存的 JD 和简历版本。</p> : <>
+          {setup.interview_schedule_id || setup.application_id ? <p>使用关联投递保存的 JD 和简历版本。</p> : <>
           <SourceSelect label="关联 JD" options={options.jobs} value={setup.job_id} choose={(job_id) => change({ job_id })} />
           <SourceSelect label="选择已确认简历" options={options.resumes} value={setup.resume_content_id}
             choose={(resume_content_id) => change({ resume_content_id })} />
@@ -211,7 +218,7 @@ export function InterviewPracticePage() {
         <h2>{current.target} · {options?.modes[current.settings.mode]}</h2>
         <p>{STATES[current.state]} · 已答 {current.answered} 题 · 剩余约 {current.remaining} 道主题题</p>
         {current.state === 'in_progress' && seconds !== null && <p>剩余时间 · {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</p>}
-        {pending && <p role="status">正在处理本轮…</p>}
+        {pending && <Feedback kind="loading">正在处理本轮…</Feedback>}
         {job?.state === 'failed' && <div role="alert" className="form-error">
           <p>{ERRORS[job.error_code ?? ''] ?? '本轮处理失败'}（{job.error_code}）</p>
           {job.attempt < 3 && !['MODEL_CONFIG_CHANGED', 'INTERVIEW_PREVIEW_CHANGED'].includes(job.error_code ?? '') &&
@@ -269,11 +276,15 @@ export function InterviewPracticePage() {
         <h2>本场面试已结束</h2><button className="button button-filled" onClick={() => navigate('report')}>查看面试复盘</button>
       </section>}
     </>}
-    {tab === 'report' && (readyReport ? <InterviewReport report={readyReport} labels={stages} slug={slug} />
+    {tab === 'report' && (readyReport ? <>
+      {!!readyReport.weaknesses.length && <div><Link className="button button-filled"
+        to={`/growth?tab=path&report=${readyReport.id}`}>将本次薄弱项加入学习路线</Link></div>}
+      <InterviewReport report={readyReport} labels={stages} slug={slug} />
+    </>
       : <section className="surface detail-panel"><p>{current?.state === 'finished' ? '正在读取报告…' : '完成面试后可查看报告。'}</p></section>)}
     {tab === 'history' && <section className="surface detail-panel grid gap-3">
       <h2>历史面试</h2>
-      {!history.length && <p>暂无面试记录。</p>}
+      {!history.length && <Feedback kind="empty">暂无面试记录。</Feedback>}
       {history.map((row) => <article className="career-detail" key={row.id}>
         <h3>{row.target} · {options?.modes[row.settings.mode]}</h3>
         <p>{new Date(row.created_at).toLocaleString()} · {STATES[row.state]}{row.state === 'finished' && ` · ${scoreText(row.score)}`}</p>

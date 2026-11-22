@@ -26,6 +26,20 @@ def test_production_rejects_a_local_secret():
                  jwt_secret=local_secret, cors_origins=["https://app.example.com"])
     assert local_secret not in str(error.value)
 
+
+def test_deployment_settings_accept_unset_optional_values(monkeypatch):
+    for name in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "LLM_THINKING"):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setenv("LLM_PRICES", "null")
+    monkeypatch.setenv("DB_POOL_SIZE", "4")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
+    monkeypatch.setenv("DB_POOL_RECYCLE_SECONDS", "600")
+    settings = Settings(_env_file=None, app_env="production", db_password="fixture",
+                        jwt_secret=uuid4().hex * 2, cors_origins=["https://career.example.com"])
+    assert settings.llm_base_url == "" and settings.llm_thinking is None
+    assert settings.llm_prices == {}
+    assert (settings.db_pool_size, settings.db_max_overflow, settings.db_pool_recycle_seconds) == (4, 0, 600)
+
 def test_register_hash_and_duplicate(client, register_account):
     email, account = register_account()
     assert account["email"] == email and "password_hash" not in account

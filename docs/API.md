@@ -1,5 +1,11 @@
 # 第二阶段 API
 
+## 求职驾驶舱
+
+`GET /api/v1/dashboard?day=YYYY-MM-DD` 需要登录。首页传入浏览器本地日期，省略时使用 UTC 日期。响应包含目标岗位、档案创建状态、能力证据分类计数、最近仍对应当前岗位版本的匹配及前四项差距、前三个项目推荐、最多五项当日已保存任务、最近面试报告和各投递状态的数量。接口仅查询当前账户已有记录，不生成学习任务或调用模型。
+
+`next_action` 优先展示用户在未结束投递中保存的行动，然后参考待处理学习任务、面试薄弱项和岗位差距，最后给出入门建议。缺失的单条记录返回 `null`，列表无记录时返回空数组。无效日期返回 422，未登录返回 401。
+
 ## 跨阶段数据衔接
 
 - `POST /api/v1/code-projects/import` 可传 `recommendation_id`。获取仓库时返回该关联。`GET /api/v1/code-projects/recommendations/{id}` 读取本人已选方案的名称。
@@ -204,3 +210,19 @@
 | `GET /job-strategy/reports`、`GET /job-strategy/reports/{id}` | 列出和轮询本人的策略报告，失败时返回 `error_code`。 |
 
 从日程调用 `POST /interviews/prepare` 或 `POST /interviews/sessions` 时传 `interview_schedule_id`。解释和计数定义见 [第九阶段使用与复测](JOB_APPLICATIONS.md)。
+
+## 第十阶段 Sprint 2
+
+- `GET /health` 返回 API 存活状态。 `GET /ready` 同时检查 MySQL 和完整 Worker 心跳，未就绪返回 503。
+- `DELETE /api/v1/users/me` 接收 `password` 和 `confirmed: true`。成功返回 202，删除数据库数据并安排清理文件。密码错误返回 403，正在运行任务时返回 409。Cookie 请求需要 CSRF 请求头。
+- 响应头 `X-Request-ID` 可用于追踪失败请求。成长中心资料和作业上传 DOCX 使用 1 MiB 文件上限，文本继续沿用原有的业务上限。
+
+## 第十阶段 Sprint 3
+
+投递、探索、面试和学习路线支持显式来源绑定。接口字段与历史资料处理方式见 [跨模块流程](CROSS_MODULE_WORKFLOW.md)。
+
+## 第十阶段 Sprint 5
+
+- `GET /api/v1/job-pipeline?limit_per_status=30` 为看板返回每列首批数据、总数和是否还有下一页。省略参数时兼容旧版响应。
+- 下一页调用 `GET /api/v1/applications`，传对应的 `status`、`limit`、`recent=true`、上一页最后一条的 `before_time` 和 `before_id`。分页器使用更新时间与编号的组合排序。
+- 生产身份验证和账户删除使用共享限流。超限返回 429 与 `Retry-After`。限流存储不可用时，相关操作返回 503。

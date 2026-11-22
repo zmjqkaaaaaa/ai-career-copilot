@@ -2,7 +2,8 @@ import { request } from './api'
 
 export type Mode = 'guided' | 'assisted'
 export type Step = 'turn' | 'pain' | 'research' | 'opportunity' | 'recommend' | 'prd'
-export type Session = { id: number; title: string; mode: Mode; direction: string | null; weekly_hours: number | null }
+export type Session = { id: number; title: string; mode: Mode; direction: string | null; weekly_hours: number | null
+  source_snapshot: { job_id: number; match_id: number; revision: number; role: string; application_id: number | null } | null }
 export type Task = { id: number; kind: Step; state: 'queued' | 'running' | 'succeeded' | 'failed'; attempt: number; result_id: number | null; error_code: string | null }
 export type Interest = { name: string; category: string; origin: string; reason: string; confidence: string }
 export type Evidence = { kind: string; detail: string; message_id?: number | null }
@@ -37,7 +38,8 @@ function json(method: string, body: unknown): RequestInit {
 export const discoveryApi = {
   list: () => request<Session[]>('/discovery/sessions'),
   get: (id: number) => request<Detail>(`/discovery/sessions/${id}`),
-  create: (title: string) => request<Session>('/discovery/sessions', json('POST', { title })),
+  create: (title: string, job_match_id?: number, application_id?: number) =>
+    request<Session>('/discovery/sessions', json('POST', { title, job_match_id, application_id })),
   session: (current: Session) => request<Session>(`/discovery/sessions/${current.id}`, json('PUT', {
     title: current.title, mode: current.mode, direction: current.direction, weekly_hours: current.weekly_hours,
   })),

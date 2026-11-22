@@ -1,3 +1,4 @@
+import { Feedback } from '../components/common/Feedback'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router'
 import { errorMessage } from '../services/api'
@@ -89,6 +90,8 @@ export function ProductDiscoveryPage() {
   const projectsPage = location.pathname === '/project-recommendations'
   const [parameters, setParameters] = useSearchParams()
   const selected = Number(parameters.get('session')) || null
+  const matchId = Number(parameters.get('match')) || null
+  const applicationId = Number(parameters.get('application')) || null
   const [sessions, setSessions] = useState<Session[]>([])
   const [record, setRecord] = useState<Detail | null>(null)
   const [tick, refresh] = useState(0)
@@ -114,7 +117,10 @@ export function ProductDiscoveryPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [messageLimit, setMessageLimit] = useState(20)
-  const current = record?.id === selected ? record : null
+  const inScope = (item: Session) => (!matchId || item.source_snapshot?.match_id === matchId)
+    && (applicationId ? item.source_snapshot?.application_id === applicationId
+      || Boolean(matchId && item.source_snapshot?.application_id === null) : !matchId || item.source_snapshot?.application_id == null)
+  const current = record?.id === selected && record && inScope(record) ? record : null
   const pending = current?.tasks.find((task) => ['queued','running'].includes(task.state))
   const latest = current?.tasks[0]
   const disabled = busy || Boolean(pending)
@@ -164,7 +170,10 @@ export function ProductDiscoveryPage() {
   }, [activeProjectId, projectsPage, prdId, tick])
 
   function select(id: number | null) {
-    setParameters(id ? {session: String(id)} : {})
+    const next = new URLSearchParams(parameters)
+    if (id) next.set('session', String(id))
+    else next.delete('session')
+    setParameters(next)
     setApproval(null); setPainId(null); setResearchId(null); setOpportunityId(null); setBatchId(null)
     setResearch(null); setPrd(null); setPrdList([]); setPrdId(null); setMessageLimit(20)
     setMessage(''); setQuery(''); setSources([]); setUrl(''); setSourceTitle(''); setExcerpt('')
@@ -185,24 +194,30 @@ export function ProductDiscoveryPage() {
   }
 
   const visibleApproval = approval?.session === current?.id ? approval : null
-  const versionLink = current ? `?session=${current.id}` : ''
+  const versionLink = parameters.size ? `?${parameters}` : ''
   return <div className="career-page">
     <section className="hero"><h1>{projectsPage ? '项目推荐与 PRD' : '兴趣探索'}</h1><p>{projectsPage ? '比较项目方向，把选定方案整理成可验证的需求草稿。' : '从一次具体经历出发，找出值得验证的问题。'}</p></section>
     <div className="career-columns">
       <aside className="surface detail-panel">
         <h2>探索会话</h2>
-        <form className="account-form" onSubmit={(e) => { e.preventDefault(); void act(async () => { const item = await api.create(title.trim()); select(item.id); setTitle('') }) }}>
+        {(matchId || applicationId) && <p>仅显示关联{applicationId ? '此投递' : '此匹配报告'}的探索会话。</p>}
+        <form className="account-form" onSubmit={(e) => { e.preventDefault(); void act(async () => {
+          const item = await api.create(title.trim(), matchId ?? undefined, applicationId ?? undefined)
+          select(item.id); setTitle('')
+        }) }}>
           <label>新会话名称<input value={title} maxLength={150} required onChange={(e) => setTitle(e.target.value)} /></label>
           <button className="button button-filled" disabled={busy || !title.trim()}>创建探索会话</button>
         </form>
-        <ul className="career-files-list">{sessions.map((item) => <li key={item.id}>
+        <ul className="career-files-list">{sessions.filter(inScope).map((item) => <li key={item.id}>
           <button aria-pressed={selected === item.id} onClick={() => select(item.id)}>{item.title}</button>
         </li>)}</ul>
       </aside>
       <div className="career-main">
-        {error && <p className="form-error" role="alert">{error}</p>}
-        {!current && <section className="surface detail-panel"><h2>{selected ? '正在读取会话…' : '创建或选择一个探索会话'}</h2></section>}
+        {error && <Feedback kind="error">{error}</Feedback>}
+        {!current && <section className="surface detail-panel"><h2>{selected && record?.id !== selected && !error
+          ? '正在读取会话…' : '创建或选择一个探索会话'}</h2></section>}
         {current && <>
+          {current.source_snapshot && <p>已绑定 {current.source_snapshot.role} · 匹配报告 #{current.source_snapshot.match_id}</p>}
           <div className="career-tabs"><Link className="button button-outline" to={(projectsPage ? '/interest-exploration' : '/project-recommendations') + versionLink}>
             {projectsPage ? '返回兴趣探索' : '进入项目推荐'}
           </Link>{!projectsPage && (Object.keys(areaNames) as (keyof typeof areaNames)[]).map((key) =>

@@ -1,0 +1,33 @@
+# AI Career Copilot AI 产品评测
+
+阶段 11.6 · 基线复核 · 2026 年 11 月 22 日
+
+## 当前证据
+
+| 证据 | 样本及结果 | 可回答的问题 |
+| --- | --- | --- |
+| 本轮离线重放 | `career-quality-1`，12/12 固定正例通过，12/12 错误内容被检测，12/12 损坏响应被拒绝 | 当前评测规则能否识别预先设计的错误 |
+| 与历史离线基线比较 | 相同数据版本和重放模式，12 个样例的通过状态、Prompt 版本及检查项无变化 | 规则行为是否出现回归 |
+| 历史真实模型基线 | 阿里云百炼 `deepseek-v4.1-flash`，12 个合成样本，12/12 通过结构校验，9/12 通过全部业务检查，0 次请求错误 | 样例级真实输出基线；每类一条，适合定位问题 |
+| 真人产品验证 | 48 小时内改完一处真实经历、使用同一 JD 复查并解释变化，尚无实测分子或分母 | 产品是否推动用户采取行动 |
+
+真模型基线来自 [第十阶段质量报告](../AI_EVALUATION.md)。本轮运行了离线评测。历史真实调用与本轮固定响应的结果各自比较。评测工具和检查项可核对 [评测入口](../../backend/app/services/ai_evaluation_service.py)、[样本](../../backend/app/evaluations/cases.py) 和 [判定规则](../../backend/app/evaluations/checks.py)。
+
+## 首轮问题优先级
+
+| 优先级 | 历史失败 | 下轮验证 |
+| --- | --- | --- |
+| 1 | 简历解析保留了事实，但把一条项目摘要分到其他经历 | 用同一事实分别放在显式项目区和混合段落，分别统计事实召回与分类正确性 |
+| 2 | 简历优化无捏造，但未给出可直接采用的保守改写 | 单独核对保留原意、无新增事实和可采用性。用户确认前保留证据引用 |
+| 3 | 面试概念题因缺少具体语法被扣分 | 配对设计概念题与实现题，人工先定评分口径，再测同类回答是否被一致评价 |
+
+结合 [PRD](PRD.md) 的首轮场景，优先复核简历证据链对匹配结果和改写动作的影响。更大样本、变化后的模型或提示词实测、延迟和成本测量、真人可用性均待对应评测。
+
+## 离线复现
+
+在 `backend` 目录运行。输出路径可换成已有的本地工作目录。
+
+```powershell
+& .venv/Scripts/python.exe -m app.services.ai_evaluation_service --output ../work/phase11/evaluation/fixture.json
+& .venv/Scripts/python.exe -m app.services.ai_evaluation_service --compare ../work/phase10/sprint4/fixture-baseline.json ../work/phase11/evaluation/fixture.json --output ../work/phase11/evaluation/fixture-comparison.json
+```

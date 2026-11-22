@@ -21,6 +21,7 @@ from app.services.interview_modes import DEFAULT_QUESTIONS, QUESTION_TYPES
 from app.services.interview_preparation_service import clean
 from app.services.interview_report_service import finish
 from app.services.resumes import utc_now
+from app.services.llm_monitoring_service import TaskContext, task_provider
 
 logger = logging.getLogger(__name__)
 ACTIVE = ("queued", "running")
@@ -304,7 +305,8 @@ def run_interview_once(factory, provider_factory=Provider):
         digest = signing(settings, work.user_id, work.session_id, work.revision, work.kind, saved["input"], saved["expires"])
         if not hmac.compare_digest(saved["approval"], f"{saved['expires']}.{digest}"):
             raise ApiError(409, "INTERVIEW_PREVIEW_CHANGED", "内容已变化")
-        provider = provider_factory(settings)
+        provider = task_provider(provider_factory, settings, factory,
+                                 TaskContext("interview", work.user_id, work.id, work.attempt, task.created_at, now))
         try:
             result = provider.generate(PROMPTS[work.kind], saved["input"], QuestionDraft if work.kind == "start" else EvaluationDraft)
         finally:

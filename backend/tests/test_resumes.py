@@ -192,13 +192,18 @@ def test_model_failure_requires_explicit_retry(client, bearer_headers, workspace
     assert client.get(f"{base}/content", headers=headers).json()["structured_data"] is not None
     assert client.delete(base, headers=headers).status_code == 204
 
-def test_provider_rejects_malformed_response(monkeypatch, workspace):
+def test_provider_rejects_malformed_response(monkeypatch, workspace, caplog):
     provider = Provider(get_settings())
     choices = [SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"skills":42}'))]
-    monkeypatch.setattr(provider.client.chat.completions, "create", lambda **_: SimpleNamespace(choices=choices, usage=None))
+    usage = SimpleNamespace(prompt_tokens=23, completion_tokens=7)
+    monkeypatch.setattr(provider.client.chat.completions, "create", lambda **_: SimpleNamespace(choices=choices, usage=usage))
     try:
-        with pytest.raises(ApiError) as error:
-            provider.generate(EXTRACT, {"blocks": []}, StructuredResume)
+        with caplog.at_level("INFO", logger="app.ai.provider"), pytest.raises(ApiError) as error:
+            provider.generate(EXTRACT, {"blocks": [{"text": "private-fixture-text"}]}, StructuredResume)
         assert error.value.code == "MODEL_OUTPUT_INVALID"
+        assert "status=MODEL_OUTPUT_INVALID" in caplog.text
+        assert "input_tokens=23 output_tokens=7" in caplog.text
+        assert "private-fixture-text" not in caplog.text
+        assert "test-placeholder" not in caplog.text
     finally:
         provider.close()
