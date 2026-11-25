@@ -1,11 +1,11 @@
 {
   "format": 1,
   "active": {
-    "resume_extraction": "extract-1",
-    "career_analysis": "career-1",
+    "resume_extraction": "extract-2",
+    "career_analysis": "career-2",
     "resume_optimization": "optimize-1",
-    "job_description": "jd-1",
-    "job_application_advice": "job-advice-1",
+    "job_description": "jd-2",
+    "job_application_advice": "job-advice-2",
     "discovery_turn": "turn-1",
     "discovery_pain": "pain-2",
     "discovery_research": "research-2",
@@ -200,6 +200,38 @@
       "registered_at": "2026-11-21",
       "changelog": "初次登记现有提示词和数据契约",
       "sha256": "340cde2614781cf75e0bdd5065d2c83c11f51b2a5c705cd55d6336a9a70fd9c1"
+    },
+    {
+      "prompt_name": "resume_extraction",
+      "version": "extract-2",
+      "created_at": null,
+      "registered_at": "2026-11-23",
+      "changelog": "逐段核对简历并保留项目与实习正文证据",
+      "sha256": "a6100483a375d50e45b5c9dabdae2ce209c2d3735e1584295bd9706c28dba010"
+    },
+    {
+      "prompt_name": "job_application_advice",
+      "version": "job-advice-2",
+      "created_at": null,
+      "registered_at": "2026-11-25",
+      "changelog": "约束建议输出字段和数量，聚焦最优先的差距",
+      "sha256": "6eb4b4f6cd7ce7a032f8facfb910b9883e57b2eff73e0b08f78e44b74b186d10"
+    },
+    {
+      "prompt_name": "career_analysis",
+      "version": "career-2",
+      "created_at": null,
+      "registered_at": "2026-11-25",
+      "changelog": "识别教育与实践证据，区分背景和技能，控制输出长度",
+      "sha256": "45a34c76a99d6ec82fa33ab9a4e14acf1dd270ee5ecd18d10eb1f91b1da665e4"
+    },
+    {
+      "prompt_name": "job_description",
+      "version": "jd-2",
+      "created_at": null,
+      "registered_at": "2026-11-25",
+      "changelog": "区分可核验门槛与行为特质，保留替代和在读限定",
+      "sha256": "60de31c839d4f3e1861284199c9686a0f89a0a6151bb979c64b532875d6609b1"
     }
   ]
 }

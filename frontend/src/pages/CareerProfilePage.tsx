@@ -1,12 +1,13 @@
 import { Feedback } from '../components/common/Feedback'
 import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { FileText, RotateCw, UploadCloud } from 'lucide-react'
 import { EvidenceReport } from '../components/career/EvidenceReport'
 import { OptimizationCard } from '../components/career/OptimizationCard'
 import { ResumeFacts } from '../components/career/ResumeFacts'
 import { useAuth } from '../hooks/AuthProvider'
 import { errorMessage } from '../services/api'
-import { careerApi } from '../services/career'
+import { careerApi, factGroups } from '../services/career'
 import type { Analysis, Block, CareerReport, Content, Job, Optimization, Resume } from '../services/career'
 
 const views = { resumes: '简历管理', profile: '职业画像', optimization: '优化建议' } as const
@@ -35,11 +36,19 @@ const errors: Record<string, string> = {
 type Snapshot = { id: number; content: Content | null; preview: Block[]; jobs: Job[]; history: Analysis[]; optimization: Optimization[] }
 const active = (job: Job) => job.state === 'queued' || job.state === 'running'
 
+function elapsed(timestamp: string | null) {
+  const time = timestamp ? Date.parse(timestamp.endsWith('Z') ? timestamp : timestamp + 'Z') : NaN
+  return Number.isFinite(time) ? ` · ${Math.max(0, Math.floor((Date.now() - time) / 1000))} 秒` : ''
+}
+
 export function CareerProfilePage() {
+  const [params, setParams] = useSearchParams()
+  const linkedResume = Number(params.get('resume')) || null
+  const linkedContent = linkedResume ? Number(params.get('content')) || null : null
   const { profile } = useAuth()
   const [view, setView] = useState<keyof typeof views>('resumes')
   const [resumes, setResumes] = useState<Resume[]>([])
-  const [selected, setSelected] = useState<number | null>(null)
+  const [selected, setSelected] = useState<number | null>(linkedResume)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileInput, setFileInput] = useState(0)
@@ -49,6 +58,7 @@ export function CareerProfilePage() {
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [actionError, setActionError] = useState('')
+  const [progressError, setProgressError] = useState('')
   const [message, setMessage] = useState('')
   const [reportError, setReportError] = useState('')
   const [analysisId, setAnalysisId] = useState<number | null>(null)
@@ -89,9 +99,10 @@ export function CareerProfilePage() {
       setLoadError('')
       try {
         const list = await careerApi.list(signal)
+        if (linkedResume && !list.some((item) => item.id === linkedResume)) list.unshift(await careerApi.read(linkedResume, signal))
         if (signal.aborted) return
         setResumes(list)
-        const id = list.some((item) => item.id === selected) ? selected : list[0]?.id ?? null
+        const id = linkedResume ?? (list.some((item) => item.id === selected) ? selected : list[0]?.id ?? null)
         if (id !== selected) {
           setSelected(id)
           return
@@ -103,8 +114,9 @@ export function CareerProfilePage() {
           return
         }
         const [content, jobs, history, optimization] = await Promise.all([
-          careerApi.content(id, signal), careerApi.jobs(id, signal), careerApi.analyses(id, signal), careerApi.optimizations(id, signal),
+          careerApi.content(id, signal, linkedContent), careerApi.jobs(id, signal), careerApi.analyses(id, signal), careerApi.optimizations(id, signal),
         ])
+        if (linkedContent && !content) { setSnapshot(null); setLoadError('找不到该简历版本。'); return }
         const preview = content && !content.structured_data ? await careerApi.preview(id, content.id, signal) : []
         if (!signal.aborted) setSnapshot({ id, content, preview, jobs, history, optimization })
       } catch (failure) {
@@ -115,7 +127,7 @@ export function CareerProfilePage() {
     }
     void load()
     return () => controller.abort()
-  }, [selected, revision])
+  }, [selected, revision, linkedResume, linkedContent])
 
   useEffect(() => {
     if (!activeJob?.id) return
@@ -126,6 +138,7 @@ export function CareerProfilePage() {
       try {
         const job = await careerApi.job(id, controller.signal)
         if (controller.signal.aborted) return
+        setProgressError('')
         if (active(job)) {
           setSnapshot((prior) => prior && ({ ...prior, jobs: prior.jobs.map((entry) => entry.id === job.id ? job : entry) }))
           timer = window.setTimeout(() => void poll(), 1600)
@@ -133,7 +146,10 @@ export function CareerProfilePage() {
           setRevision((value) => value + 1)
         }
       } catch (failure) {
-        if (!controller.signal.aborted) setLoadError(errorMessage(failure))
+        if (!controller.signal.aborted) {
+          setProgressError('暂时无法刷新任务状态，页面会自动重试。')
+          timer = window.setTimeout(() => void poll(), 3500)
+        }
       }
     }
     timer = window.setTimeout(() => void poll(), 1000)
@@ -152,6 +168,7 @@ export function CareerProfilePage() {
   async function perform(action: () => Promise<unknown>, success = '') {
     setBusy(true)
     setActionError('')
+    setProgressError('')
     setMessage('')
     try {
       await action()
@@ -162,6 +179,7 @@ export function CareerProfilePage() {
   }
 
   function select(id: number) {
+    if (linkedResume) setParams({}, { replace: true })
     setSelected(id)
     setHidden([])
     setAnalysisId(null)
@@ -178,10 +196,10 @@ export function CareerProfilePage() {
       <h1 id="career-heading">AI 职业画像</h1>
       <p>从简历定位能力证据，梳理目标方向并优化项目表达。</p>
     </section>
-    <div className="career-tabs" role="group" aria-label="职业画像视图">
+    {!linkedContent && <div className="career-tabs" role="group" aria-label="职业画像视图">
       {(Object.keys(views) as Array<keyof typeof views>).map((key) => <button type="button" key={key}
         className="button button-outline" aria-pressed={view === key} onClick={() => setView(key)}>{views[key]}</button>)}
-    </div>
+    </div>}
     <div className="career-columns">
       <aside className="surface detail-panel career-files">
         <h2>我的简历</h2>
@@ -194,7 +212,13 @@ export function CareerProfilePage() {
             setFile(null)
             setFileInput((index) => index + 1)
             setView('resumes')
-          }, '上传成功，可以开始本地解析。')
+            try {
+              await careerApi.parse(uploaded.id, false, false)
+            } catch (failure) {
+              setRevision((value) => value + 1)
+              throw new Error(`文件已上传，本地解析未提交。请点击「本地解析」重试。 ${errorMessage(failure)}`)
+            }
+          }, '上传成功，已提交本地解析。')
         }}>
           <label>选择简历<input key={fileInput} type="file" accept=".pdf,.docx" onChange={(event) => {
             const candidate = event.target.files?.[0]
@@ -219,18 +243,35 @@ export function CareerProfilePage() {
         {loadError && <div className="surface detail-panel"><Feedback kind="error">{loadError}</Feedback>
           <button className="button button-outline" onClick={() => setRevision((index) => index + 1)}>重新读取</button></div>}
         {actionError && <Feedback kind="error">{actionError}</Feedback>}
+        {activeJob && !linkedContent && progressError && <Feedback kind="error">{progressError}</Feedback>}
         {message && <Feedback kind="success">{message}</Feedback>}
         {reading && !current && <Feedback kind="loading">正在读取简历…</Feedback>}
-        {activeJob && <p className="job-status" role="status">{operationNames[activeJob.kind]} · {activeJob.state === 'running' ? '处理中' : '等待处理'}</p>}
+        {activeJob && !linkedContent && <p className="job-status" role="status">
+          {operationNames[activeJob.kind]} · {activeJob.state === 'queued'
+            ? (activeJob.worker_available === false ? '后台处理服务未连接，任务仍在队列' : '排队中') + elapsed(activeJob.scheduled_at)
+            : (activeJob.kind === 'parse' ? '正在本地读取文件' : '模型正在处理') + elapsed(activeJob.started_at)}
+        </p>}
         {!activeJob && latest?.state === 'failed' && <Feedback kind="error">{operationNames[latest.kind]}失败。{errors[latest.error_code ?? ''] ?? '暂时无法完成，可手动重试。'}</Feedback>}
         {!selectedResume && !reading && <section className="surface detail-panel">
           <h2>从上传简历开始</h2><p className="panel-description">完成本地解析后，可以核对发给模型的内容。</p>
         </section>}
-        {selectedResume && view === 'resumes' && <>
+        {selectedResume && linkedContent && currentContent?.id === linkedContent && currentContent.structured_data && <section className="surface detail-panel">
+          <div className="section-heading"><h2>{selectedResume.original_filename}</h2><span className="badge">第 {currentContent.version} 版 · 匹配来源</span></div>
+          <details className="career-detail"><summary>查看本版核对过的简历原文</summary>
+            {currentContent.model_blocks?.map((block) => <blockquote key={block.number} className="whitespace-pre-wrap">
+              段落 {block.number} · {block.location}{'\n'}{block.text}
+            </blockquote>)}
+          </details>
+          <ResumeFacts key={currentContent.id} facts={currentContent.structured_data} modelBlocks={currentContent.model_blocks ?? []}
+            confirmed={currentContent.confirmed} disabled />
+          <Link className="text-brand underline" to={`/career-profile?resume=${selectedResume.id}`} onClick={() => setView('resumes')}>打开这份简历的最新版本</Link>
+        </section>}
+        {selectedResume && !linkedContent && view === 'resumes' && <>
           <section className="surface detail-panel">
             <div className="section-heading"><h2>{selectedResume.original_filename}</h2><span className="badge">{parseLabels[selectedResume.parse_status]}</span></div>
             <div className="career-actions">
               {selectedResume.parse_status !== 'deleting' && <button className="button button-outline" disabled={disabled || reading} onClick={() => {
+                setHidden([])
                 void perform(() => careerApi.parse(selectedResume.id, Boolean(currentContent), failed('parse')))
               }}><RotateCw size={16} />{currentContent ? '重新解析' : '本地解析'}</button>}
               <button className="button button-outline" disabled={disabled || reading} onClick={() => setConfirmDelete(selectedResume.id)}>删除简历</button>
@@ -246,14 +287,19 @@ export function CareerProfilePage() {
             </div>}
           </section>
           {currentContent && !currentContent.structured_data && <section className="surface detail-panel">
-            <h2>核对将发送给模型的文字</h2>
-            <p className="panel-description">已尝试遮盖联系方式等信息。请再检查姓名等个人信息，取消勾选可整段隐藏。继续会把所选文字发送到 {providerHost ?? '尚未配置的模型服务'}。</p>
+            <h2>核对简历原文</h2>
+            <p className="panel-description">已尝试遮盖联系方式，请再检查姓名等个人信息。取消勾选可隐藏整段。选择本地整理时只在本地生成草稿。选择「同意发送并提取」时，所选文字会发送到 {providerHost ?? '尚未配置的模型服务'}。</p>
             <div className="career-source-list">
               {current?.preview.map((block) => <label key={block.number}>
                 <input type="checkbox" checked={!hidden.includes(block.number)} onChange={(event) => setHidden((values) => event.target.checked ? values.filter((id) => id !== block.number) : [...values, block.number])} />
-                <span><small>段落 {block.number} · {block.location}</small><span>{block.text}</span></span>
+                <span><small>段落 {block.number} · {block.location}{block.section ? ' · ' + factGroups[block.section] : ''}</small><span>{block.text}</span></span>
               </label>)}
             </div>
+            {current?.preview.some((block) => block.section && !hidden.includes(block.number)) &&
+              <button className="button button-outline" disabled={disabled}
+                onClick={() => void perform(() => careerApi.localDraft(selectedResume.id, currentContent.id, hidden), '已按原文章节整理本地草稿，请核对。')}>
+                按原文章节整理（本地）
+              </button>}
             <button className="button button-filled" disabled={disabled || !providerHost || !current?.preview.some((block) => !hidden.includes(block.number))}
               onClick={() => providerHost && void perform(() => careerApi.extract(selectedResume.id, currentContent.id, hidden, failed('extract'), providerHost))}>
               {failed('extract') ? '重试结构化提取' : '同意发送并提取'}
@@ -261,12 +307,13 @@ export function CareerProfilePage() {
           </section>}
           {currentContent?.structured_data && <section className="surface detail-panel">
             <div className="section-heading"><h2>结构化简历</h2><span className="badge">{currentContent.confirmed ? '已确认' : '待确认'} · 版本 {currentContent.version}</span></div>
+            {currentContent.metadata_json?.method === 'local_sections' && <p className="panel-description">本地按原文标题整理。请核对分类和正文，未识别的标题下如有重要内容，可从原文补入。</p>}
             {Boolean(currentContent.metadata_json?.rejected) && <p className="panel-description">已排除 {currentContent.metadata_json?.rejected} 条无法核对原文的结果。</p>}
-            <ResumeFacts key={currentContent.id} facts={currentContent.structured_data} confirmed={currentContent.confirmed} disabled={disabled}
+            <ResumeFacts key={currentContent.id} facts={currentContent.structured_data} modelBlocks={currentContent.model_blocks ?? []} confirmed={currentContent.confirmed} disabled={disabled}
               onSave={(facts) => void perform(() => careerApi.update(selectedResume.id, currentContent.id, facts), '已保存结构化简历。')} />
           </section>}
         </>}
-        {selectedResume && view === 'profile' && <>
+        {selectedResume && !linkedContent && view === 'profile' && <>
           <section className="surface detail-panel">
             <h2>生成职业画像</h2>
             <form className="account-form" onSubmit={(event) => {
@@ -292,7 +339,7 @@ export function CareerProfilePage() {
           {reportError && <Feedback kind="error">{reportError}</Feedback>}
           {report && report.analysis.id === reportId && <EvidenceReport result={report} />}
         </>}
-        {selectedResume && view === 'optimization' && <>
+        {selectedResume && !linkedContent && view === 'optimization' && <>
           <section className="surface detail-panel">
             <h2>简历优化</h2>
             <p className="panel-description">按「{targetDirection.trim() || 'AI 产品经理'}」方向生成建议。你可以在职业画像视图修改方向。</p>

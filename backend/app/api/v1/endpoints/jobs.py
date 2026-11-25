@@ -20,6 +20,7 @@ from app.services.job_parser import grounded_requirements
 from app.services.job_workflow import active_task, digest, enqueue, owned_job, owned_match, preview, release_job, rows, write_requirements
 from app.services.resume_parser import parse_resume
 from app.services.skill_gap_service import enrich
+from app.services.worker_health import FULL_WORKER, HEARTBEAT_SECONDS, JOB_WORKER, has_recent_heartbeat
 
 router = APIRouter(tags=["job matching"])
 
@@ -29,8 +30,20 @@ def view(record, fields):
 def job_view(job):
     return view(job, "id position_name company_name location job_type salary_range source_url job_description parsed revision confirmed created_at favorite archived discovery_metadata")
 
-def match_view(match):
-    return view(match, "id job_id content_id analysis_id revision scoring_version overall_score evidence_coverage score_details recommendations created_at")
+def match_view(match, source):
+    return {**view(match, "id job_id content_id analysis_id revision scoring_version overall_score evidence_coverage score_details recommendations created_at"),
+            "resume": dict(source._mapping) if source else None}
+
+
+def resume_sources(user_id):
+    return select(ResumeContent.id.label("content_id"), ResumeContent.version, Resume.id.label("resume_id"),
+                  Resume.original_filename).join(Resume).where(
+        Resume.user_id == user_id, ResumeContent.confirmed.is_(True), Resume.parse_status != "deleting",
+    )
+
+
+def match_source(db, match):
+    return db.execute(resume_sources(match.user_id).where(ResumeContent.id == match.content_id)).one_or_none()
 
 def task_view(task):
     return view(task, "id job_id match_id kind state attempt error_code")
@@ -54,17 +67,15 @@ def import_jd(file: Annotated[UploadFile, File()], _user: CurrentUser, settings:
         with TemporaryDirectory(dir=directory, prefix="jd-") as temporary:
             file_path = Path(temporary) / f"job.{kind}"
             file_path.write_bytes(data)
-            result = "\n\n".join(block["text"] for block in parse_resume(file_path, kind))
+            result = "\n\n".join(block["text"] for block in parse_resume(file_path, kind, identify_sections=False))
     if not 10 <= len(result.strip()) <= 12000:
         raise ApiError(422, "JD_TEXT_LENGTH", "JD 文本须为 10 到 12000 字符")
     return {"job_description": result.strip()}
 
 @router.get("/jobs/candidate-versions")
 def candidate_versions(user: CurrentUser, db: Database):
-    data = db.execute(select(ResumeContent.id, ResumeContent.version, Resume.original_filename).join(Resume).where(
-        Resume.user_id == user.id, ResumeContent.confirmed.is_(True), Resume.parse_status != "deleting",
-    ).order_by(ResumeContent.id.desc()).limit(50))
-    return [dict(row._mapping) for row in data]
+    data = db.execute(resume_sources(user.id).order_by(ResumeContent.id.desc()).limit(50))
+    return [{**row._mapping, "id": row.content_id} for row in data]
 
 @router.post("/jobs", status_code=201)
 def create(body: JobCreate, user: CurrentUser, db: Database):
@@ -144,7 +155,7 @@ def create_match(job_id: int, body: MatchRequest, user: CurrentUser, db: Databas
     fingerprint = digest([VERSION, job.revision, body.content_id, person, body.assessments])
     existing = db.scalar(select(JobMatch).where(JobMatch.job_id == job.id, JobMatch.fingerprint == fingerprint).with_for_update())
     if existing:
-        return match_view(existing)
+        return match_view(existing, match_source(db, existing))
     report = score(requirements, person, body.assessments)
     match = JobMatch(user_id=user.id, job_id=job.id, content_id=body.content_id, analysis_id=person["analysis_id"],
                      revision=job.revision, scoring_version=VERSION, fingerprint=fingerprint, score_details=report,
@@ -154,7 +165,7 @@ def create_match(job_id: int, body: MatchRequest, user: CurrentUser, db: Databas
     db.add_all([JobSkillGap(match_id=match.id, result=enrich(row)) for row in report["requirements"] if row["status"] != "matched"])
     db.refresh(match)
     db.commit()
-    return match_view(match)
+    return match_view(match, match_source(db, match))
 
 @router.get("/jobs/{job_id}/match")
 def get_match(job_id: int, user: CurrentUser, db: Database):
@@ -162,14 +173,17 @@ def get_match(job_id: int, user: CurrentUser, db: Database):
     result = db.scalar(select(JobMatch).where(JobMatch.job_id == job_id, JobMatch.user_id == user.id).order_by(JobMatch.id.desc()).limit(1))
     if not result:
         raise ApiError(404, "JOB_MATCH_NOT_FOUND", "尚未生成匹配报告")
-    return match_view(result)
+    return match_view(result, match_source(db, result))
 
 @router.get("/job-matches")
 def history(user: CurrentUser, db: Database, offset: int = 0):
     records = db.execute(select(JobMatch, JobPosition.position_name).join(JobPosition).where(
         JobMatch.user_id == user.id, JobPosition.user_id == user.id,
     ).order_by(JobMatch.id.desc()).offset(max(0, offset)).limit(50))
-    return [{**match_view(match), "position_name": title} for match, title in records]
+    records = records.all()
+    ids = {match.content_id for match, _ in records}
+    sources = {row.content_id: row for row in db.execute(resume_sources(user.id).where(ResumeContent.id.in_(ids)))} if ids else {}
+    return [{**match_view(match, sources.get(match.content_id)), "position_name": title} for match, title in records]
 
 @router.get("/job-matches/{match_id}/gaps")
 def gaps(match_id: int, user: CurrentUser, db: Database):
@@ -178,7 +192,8 @@ def gaps(match_id: int, user: CurrentUser, db: Database):
 
 @router.get("/job-matches/{match_id}")
 def read_match(match_id: int, user: CurrentUser, db: Database):
-    return match_view(owned_match(db, user.id, match_id))
+    match = owned_match(db, user.id, match_id)
+    return match_view(match, match_source(db, match))
 
 @router.get("/job-matches/{match_id}/recommendations-preview")
 def advice_preview(match_id: int, user: CurrentUser, db: Database):
@@ -198,4 +213,5 @@ def task_progress(task_id: int, user: CurrentUser, db: Database):
     ))
     if not task:
         raise ApiError(404, "JOB_TASK_NOT_FOUND", "未找到岗位分析任务")
-    return task_view(task)
+    available = has_recent_heartbeat(db, (FULL_WORKER, JOB_WORKER), 3 * HEARTBEAT_SECONDS) if task.state in {"queued", "running"} else None
+    return {**task_view(task), "worker_available": available}

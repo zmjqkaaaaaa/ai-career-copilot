@@ -2,14 +2,27 @@ import { Feedback } from '../components/common/Feedback'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../services/api'
-import { jobsApi } from '../services/jobs'
+import { jobsApi, resumeVersionPath } from '../services/jobs'
 import type { Gap, Job, Match, Preview, Requirement, Task, Version } from '../services/jobs'
 import { importanceLabels, JobReport } from '../components/jobs/JobReport'
+import { ModelConsent } from '../components/jobs/ModelConsent'
 
 const fields = { position_name: '岗位名称', company_name: '公司名称', location: '工作地点', salary_range: '薪资范围', source_url: '来源链接' } as const
 const jobTypes: Record<string, string> = { internship: '实习', full_time: '全职', other: '其他' }
 const categories: Record<string, string> = { education: '教育', product: '产品', ai: 'AI 技术', programming: '编程', data: '数据分析', practice: '项目或实习', industry: '行业', communication: '沟通协作' }
 const active = (task: Task) => task.state === 'queued' || task.state === 'running'
+
+function ModelTaskStatus({ task }: { task?: Task }) {
+  if (!task) return null
+  if (active(task)) return <p className="job-status" role="status">
+    {task.kind === 'parse' ? 'JD 解析' : 'AI 求职建议'} · {task.state === 'running' ? '处理中'
+      : task.worker_available === false ? '岗位后台未启动，任务仍在队列。已确认的 JD 仍可计算匹配。' : '排队中'}
+  </p>
+  if (task.state !== 'failed') return null
+  return <Feedback kind="error">{task.kind === 'recommendations' && ['MODEL_OUTPUT_INVALID', 'MODEL_OUTPUT_INCOMPLETE'].includes(task.error_code ?? '')
+    ? 'AI 求职建议返回的格式不完整或不符合要求。可以查看报告中的本地建议，或核对后重试。'
+    : `任务失败（${task.error_code}）。可重新核对后重试。`}</Feedback>
+}
 
 export function JobMatchingPage() {
   const [params] = useSearchParams()
@@ -28,7 +41,9 @@ export function JobMatchingPage() {
   const [version, refresh] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [confirmation, setConfirmation] = useState<(Preview & { path: string }) | null>(null)
+  const [confirmation, setConfirmation] = useState<(Preview & { path: string; matchId: number | null }) | null>(null)
+  const [adviceError, setAdviceError] = useState<{ matchId: number; message: string } | null>(null)
+  const [previewingAdvice, setPreviewingAdvice] = useState<number | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [tab, setTab] = useState<'positions' | 'history'>('positions')
   const selectionRef = useRef(selection)
@@ -38,7 +53,9 @@ export function JobMatchingPage() {
   const report = reportId ? reports.find((item) => item.id === reportId)
     ?? (explicitReport?.id === reportId && explicitReport.job_id === selection ? explicitReport : undefined) : reports[0]
   const running = current?.tasks.find(active)
-  const latest = current?.tasks[0]
+  const parseTask = current?.tasks.find((task) => task.kind === 'parse')
+  const adviceTask = current?.tasks.find((task) => task.kind === 'recommendations' && task.match_id === report?.id)
+  const selectedVersion = versions.find((item) => item.id === content)
   const paused = busy || Boolean(running)
 
   useEffect(() => {
@@ -89,31 +106,58 @@ export function JobMatchingPage() {
       try {
         const task = await jobsApi.task(id)
         if (stopped) return
-        if (active(task)) timer = window.setTimeout(poll, 1200)
+        if (active(task)) {
+          setJob((previous) => previous && { ...previous, tasks: previous.tasks.map((entry) => entry.id === id ? task : entry) })
+          timer = window.setTimeout(poll, task.worker_available === false ? 5000 : 1200)
+        }
         else refresh((value) => value + 1)
-      } catch (failure) { if (!stopped) setError(errorMessage(failure)) }
+      } catch (failure) {
+        if (!stopped) {
+          setError(errorMessage(failure))
+          timer = window.setTimeout(poll, 5000)
+        }
+      }
     }
     timer = window.setTimeout(poll, 1000)
     return () => { stopped = true; window.clearTimeout(timer) }
   }, [running?.id])
 
   function select(id: number, match?: number) {
-    setSelection(id); setReportId(match ?? null); setAssessments({}); setConfirmation(null); setDeleteId(null); setError('')
+    setSelection(id); setReportId(match ?? null); setAssessments({}); setConfirmation(null); setDeleteId(null); setError(''); setAdviceError(null)
   }
 
-  async function act(action: () => Promise<void>, reload = true) {
+  async function act(action: () => Promise<void>, reload = true, onError: (message: string) => void = setError) {
     setBusy(true); setError('')
     try { await action(); if (reload) refresh((value) => value + 1) }
-    catch (failure) { setError(errorMessage(failure)) }
+    catch (failure) { onError(errorMessage(failure)) }
     finally { setBusy(false) }
   }
 
-  function modelPreview(path: string) {
+  function modelPreview(path: string, matchId: number | null = null) {
     const requested = selection
+    setConfirmation(null)
+    if (matchId !== null) {
+      setAdviceError(null)
+      setPreviewingAdvice(matchId)
+    }
     void act(async () => {
       const preview = await jobsApi.preview(path)
-      if (selectionRef.current === requested) setConfirmation({ ...preview, path })
-    }, false)
+      if (selectionRef.current === requested) setConfirmation({ ...preview, path, matchId })
+    }, false, matchId === null ? setError : (message) => setAdviceError({ matchId, message }))
+      .finally(() => { if (matchId !== null) setPreviewingAdvice(null) })
+  }
+
+  function submitConfirmation() {
+    if (!current || !confirmation?.host) return
+    const { path, host, matchId } = confirmation
+    const previousTask = matchId === null ? parseTask : adviceTask
+    if (matchId !== null && report?.id !== matchId) return
+    setAdviceError(null)
+    void act(async () => {
+      const result = await jobsApi.submitModel(path, host, previousTask?.state === 'failed')
+      setJob((previous) => previous?.id === current.id ? { ...previous, tasks: [result, ...previous.tasks.filter((task) => task.id !== result.id)] } : previous)
+      setConfirmation(null)
+    }, true, matchId === null ? setError : (message) => setAdviceError({ matchId, message }))
   }
 
   return <div className="career-page">
@@ -174,28 +218,19 @@ export function JobMatchingPage() {
               {current.source_url && <> <a className="text-brand underline" href={current.source_url} target="_blank" rel="noreferrer">查看岗位来源</a></>}
             </p>
             {current.parsed?.duties.length ? <><h3>工作职责</h3><ul>{current.parsed.duties.map((duty) => <li key={duty}>{duty}</li>)}</ul></> : null}
-            {running && <p className="job-status" role="status">正在{running.kind === 'parse' ? '解析 JD' : '生成求职建议'}…</p>}
-            {!running && latest?.state === 'failed' && <Feedback kind="error">任务失败（{latest.error_code}）。可重新核对后重试。</Feedback>}
+            <ModelTaskStatus task={parseTask} />
             <div className="career-actions">
               <button className="button button-filled" disabled={paused} onClick={() => modelPreview(`/jobs/${current.id}/parse`)}>解析 JD</button>
               <button className="button button-outline" disabled={paused} onClick={() => setDeleteId(current.id)}>删除岗位</button>
             </div>
+            {confirmation?.matchId === null && <ModelConsent preview={confirmation} advice={false} busy={paused}
+              onConfirm={submitConfirmation} onCancel={() => setConfirmation(null)} />}
             {deleteId === current.id && <div className="career-delete">
               <p>会一并删除该岗位的匹配报告。</p><button className="button button-outline" disabled={paused} onClick={() => void act(async () => {
                 await jobsApi.remove(current.id); setSelection(null); setDeleteId(null); setConfirmation(null)
               })}>确认删除岗位</button>{' '}<button className="button button-outline" onClick={() => setDeleteId(null)}>取消</button>
             </div>}
           </section>
-          {confirmation && <section className="surface detail-panel">
-            <h2>核对发送内容</h2>
-            <p>接收服务 · {confirmation.host ?? '尚未配置'}</p>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words">{typeof confirmation.payload.job_description === 'string' ? confirmation.payload.job_description : JSON.stringify(confirmation.payload, null, 2)}</pre>
-            <button className="button button-filled" disabled={paused || !confirmation.host} onClick={() => void act(async () => {
-              const result = await jobsApi.submitModel(confirmation.path, confirmation.host!, latest?.state === 'failed')
-              setJob((previous) => previous?.id === current.id ? { ...previous, tasks: [result, ...previous.tasks.filter((task) => task.id !== result.id)] } : previous)
-              setConfirmation(null)
-            })}>同意发送并执行</button>{' '}<button className="button button-outline" onClick={() => setConfirmation(null)}>取消</button>
-          </section>}
           {current.revision > 0 && <section className="surface detail-panel">
             <h2>核对岗位要求 {current.confirmed && <span className="badge">已确认</span>}</h2>
             <div className="grid gap-3">
@@ -226,18 +261,35 @@ export function JobMatchingPage() {
                 {!versions.length && <option value="">请先确认一份结构化简历</option>}
                 {versions.map((item) => <option key={item.id} value={item.id}>{item.original_filename} · 第 {item.version} 版</option>)}
               </select></label>
-              <button className="button button-filled" disabled={paused || !content || !current.confirmed || JSON.stringify(requirements) !== JSON.stringify(current.requirements)}
+              {selectedVersion?.resume_id && <Link className="text-brand underline" to={resumeVersionPath(selectedVersion)}>
+                查看所选简历：{selectedVersion.original_filename} · 第 {selectedVersion.version} 版
+              </Link>}
+              {versions.length === 1 && content === versions[0].id && <p className="panel-description">已自动选择唯一一份已确认的简历。</p>}
+              {current.confirmed && running?.kind === 'parse' && <p className="panel-description">可使用已确认的第 {current.revision} 版岗位要求计算匹配。</p>}
+              <button className="button button-filled" disabled={busy || !content || !current.confirmed || JSON.stringify(requirements) !== JSON.stringify(current.requirements)}
                 onClick={() => content && void act(async () => {
                   const result = await jobsApi.match(current.id, { content_id: content, revision: current.revision, assessments })
                   setHistory((previous) => [result, ...previous.filter((item) => item.id !== result.id)])
                   setReportId(result.id)
+                  setConfirmation(null)
+                  setAdviceError(null)
                 })}>计算匹配</button>
             </div>
           </section>}
           {report && <Link className="button button-outline" to={`/interest-exploration?match=${report.id}`}>根据此匹配报告探索项目</Link>}
           {report && current && report.revision !== current.revision && <p>此报告基于历史 JD 第 {report.revision} 版。</p>}
-          {report && <JobReport match={report} gaps={gapData?.id === report.id ? gapData.values : []} disabled={paused}
-            onAdvice={() => modelPreview(`/job-matches/${report.id}/recommendations`)} />}
+          {report && <JobReport match={report} gaps={gapData?.id === report.id ? gapData.values : []} adviceControls={<>
+            <ModelTaskStatus task={adviceTask} />
+            {adviceError?.matchId === report.id && <Feedback kind="error">{adviceError.message}</Feedback>}
+            {confirmation?.matchId === report.id
+              ? <ModelConsent preview={confirmation} advice busy={paused} onConfirm={submitConfirmation}
+                onCancel={() => setConfirmation(null)} />
+              : <button type="button" className="button button-filled" disabled={paused}
+                onClick={() => modelPreview(`/job-matches/${report.id}/recommendations`, report.id)}>
+                {previewingAdvice === report.id ? '正在读取发送内容…' : adviceTask?.state === 'failed'
+                  || report.recommendations?.generation_method === 'local_fallback' ? '重试 AI 求职建议' : '生成 AI 求职建议'}
+              </button>}
+          </>} />}
         </>}
       </div>
     </div>}

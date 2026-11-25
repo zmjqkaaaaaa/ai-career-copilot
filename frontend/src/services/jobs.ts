@@ -3,7 +3,7 @@ import { request } from './api'
 export type Requirement = {
   name: string; category: string; kind: string; importance: string; quote: string
 }
-export type Task = { id: number; kind: string; match_id: number | null; state: string; error_code: string | null }
+export type Task = { id: number; kind: string; match_id: number | null; state: string; error_code: string | null; worker_available?: boolean | null }
 export type Job = {
   id: number; position_name: string; company_name: string | null; location: string | null
   job_type: string | null; salary_range: string | null; source_url: string | null
@@ -12,19 +12,24 @@ export type Job = {
   requirements: Requirement[]; tasks: Task[]
 }
 export type Row = Requirement & {
-  ordinal: number; status: string; evidence_status: string; sources: { quote: string; block_number?: number }[]
+  ordinal: number; status: string; evidence_status: string; sources: { quote: string; block_number?: number; location?: string }[]
+  interpretation?: string
+  checks?: { name: string; sources: { quote: string; block_number: number }[] }[]
 }
 export type Gap = Row & { priority: string; why: string; action: string; practice: string; validation: string }
 export type Match = {
   id: number; job_id: number; content_id: number; position_name?: string; created_at: string; revision: number
   overall_score: number | null; evidence_coverage: number | null; scoring_version: string
+  resume?: ResumeSource | null
   score_details: {
     dimensions: Record<string, { weight: number; score: number | null; required: number; rated: number }>
     requirements: Row[]; hard_flags: Row[]; verdict: string
   }
-  recommendations: { rationale: string; resume_focus: string[]; interview_focus: string[]; projects: string[]; next_steps: string[] } | null
+  recommendations: { generation_method?: 'local_fallback'; rationale: string; resume_focus: string[]; interview_focus: string[]; projects: string[]; next_steps: string[] } | null
 }
-export type Version = { id: number; version: number; original_filename: string }
+export type ResumeSource = { content_id: number; resume_id: number; version: number; original_filename: string }
+export type Version = ResumeSource & { id: number }
+export const resumeVersionPath = (source: ResumeSource) => `/career-profile?resume=${source.resume_id}&content=${source.content_id}`
 export type Preview = { host: string | null; payload: Record<string, unknown> }
 
 function json(method: string, body: unknown): RequestInit {

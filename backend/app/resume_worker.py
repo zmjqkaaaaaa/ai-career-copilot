@@ -11,7 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.ai.evidence import approved_text_digest, facts_for_model, redact_blocks, redact_text
 from app.ai.evidence import validate_analysis, validate_extraction, validate_optimizations
-from app.ai.prompts import ANALYZE, EXTRACT, OPTIMIZE
+from app.ai.prompts import ANALYZE, ANALYZE_V1, EXTRACT, EXTRACT_V1, OPTIMIZE
 from app.ai.provider import Provider, provider_fingerprint
 from app.core.config import get_settings
 from app.core.errors import ApiError
@@ -38,10 +38,12 @@ class Task:
     created_at: datetime | None = None
     started_at: datetime | None = None
 
-def claim_job(factory) -> Task | None:
+def claim_job(factory, *, local_only: bool | None = None) -> Task | None:
     with factory() as db:
-        job = db.scalar(select(ResumeJob).where(ResumeJob.state == "queued")
-                        .order_by(ResumeJob.id).limit(1).with_for_update(skip_locked=True))
+        statement = select(ResumeJob).where(ResumeJob.state == "queued")
+        if local_only is not None:
+            statement = statement.where(ResumeJob.kind == "parse" if local_only else ResumeJob.kind != "parse")
+        job = db.scalar(statement.order_by(ResumeJob.id).limit(1).with_for_update(skip_locked=True))
         if job is None:
             return None
         job.state = "running"
@@ -80,13 +82,15 @@ def compute(factory, task: Task, provider_factory):
                              TaskContext("resume", resume.user_id, task.id, task.attempt, task.created_at, task.started_at))
     try:
         if task.kind == "extract":
-            drafts = provider.generate(EXTRACT, {"blocks": blocks}, StructuredResume)
+            prompt = EXTRACT_V1 if task.payload["prompt_version"] == EXTRACT_V1.version else EXTRACT
+            drafts = provider.generate(prompt, {"blocks": blocks}, StructuredResume)
             result, rejected = validate_extraction(drafts, blocks)
             return blocks, result.model_dump(mode="json"), rejected
         payload = {"blocks": blocks, "facts": facts_for_model(source.structured_data or {}),
                    "target_direction": redact_text(task.payload["target_direction"])}
         if task.kind == "analyze":
-            result = provider.generate(ANALYZE, payload, CareerResult)
+            prompt = ANALYZE_V1 if task.payload["prompt_version"] == ANALYZE_V1.version else ANALYZE
+            result = provider.generate(prompt, payload, CareerResult)
             return validate_analysis(result, blocks)
         if task.kind == "optimize":
             result = provider.generate(OPTIMIZE, payload, OptimizationResult)
@@ -124,21 +128,21 @@ def complete(factory, task: Task, result=None, error_code: str | None = None) ->
             blocks, structured, rejected = result
             revision = copy_revision(
                 db, source, model_blocks=blocks, structured_data=structured, confirmed=False,
-                metadata_json={"model": get_settings().llm_model, "prompt_version": EXTRACT.version, "rejected": rejected},
+                metadata_json={"model": get_settings().llm_model, "prompt_version": task.payload["prompt_version"], "rejected": rejected},
             )
             job.result_id = revision.id
         elif task.kind == "analyze":
             job.result_id = store_analysis(db, resume.user_id, task.payload["content_id"], task.payload["target_direction"],
-                                           result, get_settings().llm_model, ANALYZE.version)
+                                           result, get_settings().llm_model, task.payload["prompt_version"])
         elif task.kind == "optimize":
             job.result_id = store_optimizations(db, task.payload["content_id"], result)
         db.commit()
 
-def run_once(factory=None, provider_factory=Provider) -> bool:
+def run_once(factory=None, provider_factory=Provider, *, local_only: bool | None = None) -> bool:
     factory = factory or session_factory()
     for stale in find_stale_jobs(factory):
         complete(factory, stale, error_code="JOB_INTERRUPTED")
-    task = claim_job(factory)
+    task = claim_job(factory, local_only=local_only)
     if task is None:
         return False
     try:
@@ -152,6 +156,15 @@ def run_once(factory=None, provider_factory=Provider) -> bool:
         complete(factory, task, error_code="RESUME_JOB_FAILED")
     return True
 
+
+def run_local_parse(factory):
+    return run_once(factory, local_only=True)
+
+
+def run_resume_model(factory):
+    return run_once(factory, local_only=False)
+
+
 def main() -> None:
     from app.core.rate_limit import clear_expired_windows
     from app.services.account_deletion import clean_file_once
@@ -161,23 +174,40 @@ def main() -> None:
     from app.services.discovery_workflow import run_discovery_once
     from app.services.job_workflow import run_job_once
     from app.services.job_strategy_service import run_strategy_once
-    from app.services.worker_health import FULL_WORKER, HEARTBEAT_SECONDS, STRATEGY_WORKER, heartbeat
+    from app.services.worker_health import (
+        FULL_WORKER, HEARTBEAT_SECONDS, JOB_WORKER, RESUME_WORKER, STRATEGY_WORKER, has_recent_heartbeat, heartbeat,
+    )
     from app.services.worker_scheduler import run_queues
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--approved-host", help="Require this configured model hostname before the worker starts.")
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--resume-only", action="store_true", help="Process resume tasks only.")
+    mode.add_argument("--check-resume-worker", action="store_true", help="Check for an active resume or full worker.")
+    mode.add_argument("--job-only", action="store_true", help="Process only user-approved job matching tasks.")
+    mode.add_argument("--check-job-worker", action="store_true", help="Check for an active job matching or full worker.")
     mode.add_argument("--strategy-only", action="store_true", help="Process only approved anonymous job strategy reports.")
     mode.add_argument("--maintenance-only", action="store_true", help="Process only deferred account file cleanup.")
     args = parser.parse_args()
+    if args.check_resume_worker or args.check_job_worker:
+        role = RESUME_WORKER if args.check_resume_worker else JOB_WORKER
+        with session_factory()() as db:
+            raise SystemExit(0 if has_recent_heartbeat(db, (FULL_WORKER, role), 3 * HEARTBEAT_SECONDS) else 1)
     if args.approved_host:
         hostname = urlsplit(get_settings().llm_base_url or "").hostname
         if hostname != args.approved_host:
             raise SystemExit("The configured model host does not match the approved destination.")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    logger.info("resume worker started")
     factory = session_factory()
-    role = STRATEGY_WORKER if args.strategy_only else FULL_WORKER
+    if args.resume_only:
+        role = RESUME_WORKER
+    elif args.job_only:
+        role = JOB_WORKER
+    elif args.strategy_only:
+        role = STRATEGY_WORKER
+    else:
+        role = FULL_WORKER
+    logger.info("worker started role=%s", role)
     next_heartbeat = 0.0
     next_rate_cleanup = 0.0
 
@@ -194,8 +224,12 @@ def main() -> None:
             next_rate_cleanup = monotonic() + 60
         return clean_file_once(db_factory)
 
-    workflows = (maintain, run_once, run_job_once, run_discovery_once, run_code_project_once,
+    workflows = (maintain, run_local_parse, run_resume_model, run_job_once, run_discovery_once, run_code_project_once,
                  run_interview_once, run_learning_once, run_strategy_once)
+    if args.resume_only:
+        workflows = (run_local_parse, run_resume_model)
+    elif args.job_only:
+        workflows = (run_job_once,)
     while True:
         try:
             if args.maintenance_only:

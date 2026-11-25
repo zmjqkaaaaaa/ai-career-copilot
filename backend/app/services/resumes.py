@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.evidence import confirm_facts
+from app.ai.evidence import confirm_facts, local_resume_facts, redact_blocks
 from app.core.errors import ApiError
 from app.models.resume import Resume, ResumeContent, ResumeJob
 from app.schemas.career import StructuredResume
@@ -84,6 +84,22 @@ def copy_revision(db: Session, source: ResumeContent, **updates: Any) -> ResumeC
     db.add(revision)
     db.flush()
     return revision
+
+def create_local_draft(db: Session, resume: Resume, content_id: int, hidden_blocks: list[int]) -> ResumeContent:
+    if active_job(db, resume.id):
+        raise ApiError(409, "RESUME_BUSY", "简历正在处理，请稍后再保存本地草稿")
+    source = require_content(db, resume.id, content_id, latest=True)
+    if source.structured_data is not None:
+        raise ApiError(409, "PARSE_REQUIRED", "请先重新解析原文件，再生成本地草稿")
+    blocks = redact_blocks(source.blocks, hidden_blocks)
+    facts = local_resume_facts(blocks).model_dump(mode="json")
+    if not any(facts.values()):
+        raise ApiError(422, "NO_RESUME_SECTIONS", "所选段落没有可直接提取的章节，请检查原文")
+    revision = copy_revision(db, source, model_blocks=blocks, structured_data=facts,
+                             metadata_json={"method": "local_sections", "rejected": 0}, confirmed=False)
+    db.commit()
+    return revision
+
 
 def edit_content(db: Session, resume: Resume, content_id: int, facts: StructuredResume) -> ResumeContent:
     if active_job(db, resume.id):

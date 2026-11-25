@@ -8,12 +8,13 @@ from app.api.dependencies import AppSettings, CurrentUser, Database
 from app.core.errors import ApiError
 from app.models.resume import Resume, ResumeJob
 from app.schemas.career import (
-    Block, ConfirmOptimization, ContentEdit, ContentRead, ExtractTrigger, JobRead, OptimizationRead,
+    Block, ConfirmOptimization, ContentEdit, ContentRead, ExtractTrigger, JobRead, LocalDraftRequest, OptimizationRead,
     OptimizeRequest, ParseTrigger, ResumeRead,
 )
 from app.services.career import confirm_optimization, optimization_query
 from app.services.resume_jobs import job_history, start_job
-from app.services.resumes import create_resume, edit_content, owned_resume, remove_resume, require_content
+from app.services.resumes import create_local_draft, create_resume, edit_content, owned_resume, remove_resume, require_content
+from app.services.worker_health import FULL_WORKER, HEARTBEAT_SECONDS, RESUME_WORKER, has_recent_heartbeat
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
 jobs_router = APIRouter(prefix="/resume-jobs", tags=["resume-jobs"])
@@ -42,6 +43,11 @@ def parse(resume_id: int, user: CurrentUser, db: Database, settings: AppSettings
 @router.post("/{resume_id}/extract", status_code=202, response_model=JobRead)
 def extract(resume_id: int, body: ExtractTrigger, user: CurrentUser, db: Database, settings: AppSettings):
     return start_job(db, user.id, resume_id, "extract", body, settings)
+
+@router.post("/{resume_id}/local-draft", status_code=201, response_model=ContentRead)
+def local_draft(resume_id: int, body: LocalDraftRequest, user: CurrentUser, db: Database):
+    resume = owned_resume(db, user.id, resume_id, lock=True)
+    return create_local_draft(db, resume, body.content_id, body.hidden_blocks)
 
 @router.get("/{resume_id}/content", response_model=ContentRead)
 def read_content(resume_id: int, user: CurrentUser, db: Database, content_id: Annotated[int | None, Query(gt=0)] = None):
@@ -87,4 +93,5 @@ def job_progress(job_id: int, user: CurrentUser, db: Database):
     ))
     if job is None:
         raise ApiError(404, "RESUME_JOB_NOT_FOUND", "未找到简历任务")
-    return job
+    available = has_recent_heartbeat(db, (FULL_WORKER, RESUME_WORKER), 3 * HEARTBEAT_SECONDS) if job.state in {"queued", "running"} else None
+    return JobRead.model_validate(job).model_copy(update={"worker_available": available})

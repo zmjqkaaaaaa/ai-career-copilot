@@ -4,9 +4,11 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from pypdf import PdfWriter
+from docx import Document
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
 
-from app.ai.evidence import redact_blocks
+from app.ai.evidence import redact_blocks, validate_extraction
 from app.ai.prompts import EXTRACT
 from app.ai.provider import Provider
 from app.core.config import get_settings
@@ -48,6 +50,87 @@ def test_parse_ten_synthetic_resumes(case, tmp_path):
     for field in ("projects", "skills", "internships"):
         assert all(value in text for value in case[field])
 
+
+def test_pdf_recovers_adobe_gb1_text_without_tounicode(tmp_path):
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=595, height=842)
+    cid_system = DictionaryObject({
+        NameObject("/Registry"): TextStringObject("Adobe"),
+        NameObject("/Ordering"): TextStringObject("GB1"),
+        NameObject("/Supplement"): NumberObject(5),
+    })
+    font = DictionaryObject({
+        NameObject("/Subtype"): NameObject("/Type0"),
+        NameObject("/Encoding"): NameObject("/Identity-H"),
+        NameObject("/DescendantFonts"): ArrayObject([DictionaryObject({NameObject("/CIDSystemInfo"): cid_system})]),
+    })
+    page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+    stream = DecodedStreamObject()
+    stream.set_data(b"BT /F1 12 Tf 40 780 Td <06fd125408dc09e5> Tj 0 -20 Td <0ff9063f0f4d07310f220e64> Tj ET")
+    page[NameObject("/Contents")] = stream
+    path = tmp_path / "gb1.pdf"
+    writer.write(path)
+
+    assert "工作经历" not in PdfReader(path).pages[0].extract_text()
+    blocks = parse_resume(path, "pdf")
+    assert [block["text"] for block in blocks] == ["工作经历", "研发相关系统"]
+    assert blocks[1]["section"] == "other_experiences"
+
+
+def test_docx_preserves_project_bullets_inside_nested_tables(tmp_path):
+    path = tmp_path / "nested.docx"
+    document = Document()
+    document.add_paragraph("项目经历")
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    cell.paragraphs[0].text = "求职成长助手"
+    cell.add_table(rows=1, cols=1).cell(0, 0).text = "参与需求拆解并交付产品需求文档"
+    cell.add_paragraph("使用 SQL 核对投递记录")
+    document.add_paragraph("第二个项目：库存看板")
+    document.save(path)
+    content = [block["text"] for block in parse_resume(path, "docx")]
+    assert content == ["项目经历", "求职成长助手\n参与需求拆解并交付产品需求文档\n使用 SQL 核对投递记录", "第二个项目：库存看板"]
+
+
+def test_local_resume_draft_preserves_experiences_and_ownership(client, bearer_headers, workspace):
+    document = Document()
+    for paragraph in (
+        "实习经历", "模拟公司 产品实习 2025.01-2025.04", "负责需求梳理并输出两份报告", "跟踪异常案例",
+        "第二公司 数据实习 2025.05-2025.08", "使用 SQL 验证库存",
+        "项目经历", "库存看板 2025.01-2025.06", "制作原型",
+    ):
+        document.add_paragraph(paragraph)
+    stream = BytesIO()
+    document.save(stream)
+    headers = bearer_headers()
+    created = client.post(f"{RESUMES}/upload", headers=headers, files={"file": ("sample.docx", stream.getvalue())})
+    base = f"{RESUMES}/{created.json()['id']}"
+    assert client.post(base + "/parse", headers=headers).status_code == 202
+    assert run_once(local_only=True)
+    parsed = client.get(base + "/content", headers=headers).json()
+    blocks = parsed["blocks"]
+    internship = next(block for block in blocks if block["section"] == "internships")
+    assert internship["text"].splitlines()[-2:] == ["负责需求梳理并输出两份报告", "跟踪异常案例"]
+    wrong_group = StructuredResume.model_validate({"projects": [
+        {"original": "跟踪异常案例", "source": {"block_number": internship["number"], "quote": "跟踪异常案例"}}
+    ]})
+    corrected, rejected = validate_extraction(wrong_group, blocks)
+    assert rejected == 0
+    assert len(corrected.internships) == 2 and len(corrected.projects) == 1
+    assert corrected.internships[0].original == internship["text"]
+
+    data = {"content_id": parsed["id"], "hidden_blocks": [internship["number"]]}
+    assert client.post(base + "/local-draft", headers=bearer_headers(), json=data).status_code == 404
+    local = client.post(base + "/local-draft", headers=headers, json=data)
+    assert local.status_code == 201, local.text
+    draft = local.json()
+    assert draft["metadata_json"]["method"] == "local_sections" and not draft["confirmed"]
+    assert len(draft["structured_data"]["internships"]) == 1
+    assert len(draft["structured_data"]["projects"]) == 1
+    assert all(block["number"] != internship["number"] for block in draft["model_blocks"])
+    confirmed = client.put(base + "/content", headers=headers, json={"content_id": draft["id"], "structured_data": draft["structured_data"]})
+    assert confirmed.status_code == 200 and confirmed.json()["confirmed"]
+    assert client.delete(base, headers=headers).status_code == 204
+
 def test_upload_validation_and_empty_pdf(client, bearer_headers, workspace):
     headers = bearer_headers()
     for filename, data, status in (
@@ -66,9 +149,12 @@ def test_upload_validation_and_empty_pdf(client, bearer_headers, workspace):
     assert result.status_code == 201
     base = f"{RESUMES}/{result.json()['id']}"
     job = client.post(f"{base}/parse", headers=headers).json()
-    assert run_once()
+    assert job["scheduled_at"] and job["started_at"] is None
+    assert not run_once(local_only=False)
+    assert run_once(local_only=True)
     progress = client.get(f"/api/v1/resume-jobs/{job['id']}", headers=headers)
     assert progress.json()["state"] == "failed" and progress.json()["error_code"] == "NO_RESUME_TEXT"
+    assert progress.json()["finished_at"]
     assert client.delete(base, headers=headers).status_code == 204
 
 class SyntheticProvider:
@@ -143,6 +229,7 @@ def test_resume_ai_workflow_and_isolation(client, bearer_headers, workspace):
     assert run_once(provider_factory=SyntheticProvider)
     draft = client.get(f"{base}/content", headers=own).json()
     assert draft["metadata_json"]["rejected"] == 1 and draft["structured_data"]["skills"][0]["original"] == "SQL"
+    assert draft["metadata_json"]["prompt_version"] == "extract-2"
     assert all(block["number"] != 1 for block in draft["model_blocks"])
     confirmed = client.put(f"{base}/content", headers=own,
                            json={"content_id": draft["id"], "structured_data": draft["structured_data"]})

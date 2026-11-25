@@ -21,8 +21,8 @@ from app.schemas import discovery as discovery_schema
 from app.schemas import interview as interview_schema
 from app.schemas import job as job_schema
 from app.schemas import learning as learning_schema
-from app.services.job_parser import JD_PROMPT
-from app.services.skill_gap_service import ADVICE_PROMPT
+from app.services.job_parser import JD_PROMPT, JD_PROMPT_V1
+from app.services.skill_gap_service import ADVICE_PROMPT, ADVICE_PROMPT_V1
 
 ROOT = Path(__file__).resolve().parent
 TYPES = {"array": list, "object": dict, "string": str, "integer": int, "boolean": bool, "any": object}
@@ -63,10 +63,14 @@ def define(module, prompt, output, **required):
 
 
 DEFINITIONS = (
+    define("resume", resume.EXTRACT_V1, career_schema.StructuredResume, blocks="array"),
     define("resume", resume.EXTRACT, career_schema.StructuredResume, blocks="array"),
+    define("resume", resume.ANALYZE_V1, career_schema.CareerResult, blocks="array", facts="object", target_direction="string"),
     define("resume", resume.ANALYZE, career_schema.CareerResult, blocks="array", facts="object", target_direction="string"),
     define("resume", resume.OPTIMIZE, career_schema.OptimizationResult, blocks="array", facts="object", target_direction="string"),
+    define("job_matching", JD_PROMPT_V1, job_schema.JDResult, job_description="string"),
     define("job_matching", JD_PROMPT, job_schema.JDResult, job_description="string"),
+    define("job_matching", ADVICE_PROMPT_V1, job_schema.Advice, decision="string", requirements="array"),
     define("job_matching", ADVICE_PROMPT, job_schema.Advice, decision="string", requirements="array"),
     define("discovery", discovery.TURN, discovery_schema.Turn, messages="array", mode="string"),
     define("discovery", discovery.PAIN, discovery_schema.PainResult, messages="array"),

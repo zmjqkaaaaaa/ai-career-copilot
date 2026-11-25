@@ -12,10 +12,10 @@ from app.core.errors import ApiError
 from app.models.job import JobAnalysisTask, JobMatch, JobPosition, JobRequirement, JobSkillGap
 from app.models.user import User
 from app.schemas.job import Advice
-from app.services.job_parser import JD_PROMPT, parse_jd
+from app.services.job_parser import JD_PROMPT, JD_PROMPT_V1, parse_jd
 from app.services.llm_monitoring_service import TaskContext, task_provider
 from app.services.resumes import utc_now
-from app.services.skill_gap_service import ADVICE_PROMPT
+from app.services.skill_gap_service import ADVICE_FORMAT_ERRORS, ADVICE_PROMPT, ADVICE_PROMPT_V1, fallback_advice
 
 logger = logging.getLogger(__name__)
 ACTIVE = ("queued", "running")
@@ -101,11 +101,23 @@ def enqueue(db, job, match, body, settings):
         task = existing
     else:
         task = JobAnalysisTask(job_id=job.id, match_id=match.id if match else None, kind=kind, fingerprint=fingerprint,
-                               payload={"source": source, "provider": provider_fingerprint(settings), "approved": True})
+                               payload={"source": source, "provider": provider_fingerprint(settings), "approved": True,
+                                        "prompt_version": ADVICE_PROMPT.version if match else JD_PROMPT.version})
         db.add(task)
     db.flush()
     db.commit()
     return task
+
+def generate_advice(provider, task):
+    prompt = ADVICE_PROMPT if task.payload.get("prompt_version") == ADVICE_PROMPT.version else ADVICE_PROMPT_V1
+    source = task.payload["source"]
+    try:
+        return provider.generate(prompt, source, Advice).model_dump(mode="json")
+    except ApiError as exc:
+        if exc.code not in ADVICE_FORMAT_ERRORS:
+            raise
+    return provider.generate(ADVICE_PROMPT, source, Advice).model_dump(mode="json")
+
 
 def run_job_once(factory, provider_factory=Provider):
     with factory() as db:
@@ -122,6 +134,7 @@ def run_job_once(factory, provider_factory=Provider):
         owner = db.scalar(select(JobPosition.user_id).where(JobPosition.id == task.job_id))
         db.commit()
     result, error = None, None
+    jd_prompt = JD_PROMPT if task.payload.get("prompt_version") == JD_PROMPT.version else JD_PROMPT_V1
     try:
         settings = get_settings()
         if not task.payload.get("approved") or task.payload["provider"] != provider_fingerprint(settings):
@@ -130,9 +143,9 @@ def run_job_once(factory, provider_factory=Provider):
                                  TaskContext("job_matching", owner, task.id, task.attempt, task.created_at, task.started_at))
         try:
             if task.kind == "parse":
-                result = parse_jd(provider, task.payload["source"])
+                result = parse_jd(provider, task.payload["source"], jd_prompt)
             else:
-                result = provider.generate(ADVICE_PROMPT, task.payload["source"], Advice).model_dump(mode="json")
+                result = generate_advice(provider, task)
         finally:
             provider.close()
     except ApiError as exc:
@@ -147,14 +160,15 @@ def run_job_once(factory, provider_factory=Provider):
             return True
         if not error and task.kind == "parse":
             requirements = result.pop("requirements")
-            job.parsed = {**result, "model": settings.llm_model, "prompt_version": JD_PROMPT.version}
+            job.parsed = {**result, "model": settings.llm_model, "prompt_version": jd_prompt.version}
             job.confirmed = False
             write_requirements(db, job, requirements)
-        if not error and task.kind == "recommendations":
+        if task.kind == "recommendations" and (not error or error in ADVICE_FORMAT_ERRORS):
             match = db.get(JobMatch, task.match_id)
-            if not match:
-                return True
-            match.recommendations = result
+            if match and not error:
+                match.recommendations = result
+            elif match and not match.recommendations:
+                match.recommendations = fallback_advice(match.score_details)
         current.state, current.error_code = ("failed" if error else "succeeded"), error
         db.commit()
     return True

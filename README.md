@@ -10,7 +10,7 @@
 
 ![求职驾驶舱，真实前端与合成账号数据](docs/stage11/screenshots/dashboard.png)
 
-[产品核心案例](docs/stage11/PROJECT_CASE_STUDY.md) · [系统与 AI 架构图](docs/stage11/SYSTEM_ARCHITECTURE.md) · [本地运行与数据库初始化](docs/stage11/README.md#本地运行)
+[产品核心案例](docs/stage11/PROJECT_CASE_STUDY.md) · [首轮用户试用与产品迭代](docs/stage11/USER_TRIAL_RECAP.md) · [系统与 AI 架构图](docs/stage11/SYSTEM_ARCHITECTURE.md) · [本地运行与数据库初始化](docs/stage11/README.md#本地运行)
 
 ## 第十阶段交付
 
@@ -18,11 +18,11 @@
 - [端到端验收](docs/PRODUCT_ACCEPTANCE.md) 记录实际数据库、浏览器、权限和性能结果。最终隔离回归为 120 项通过，10 项外部服务用例按配置跳过。
 - [统一模型调用和提示词评估](docs/AI_EVALUATION.md) 与 [性能、安全、Token 和成本](docs/PERFORMANCE_SECURITY.md) 记录 AI 质量基线、数据处理边界和复测方式。[Provider 源码](backend/app/ai/provider.py)
 - [部署与恢复](docs/DEPLOYMENT.md) 提供本地、测试和生产运行方式。[Docker Compose](compose.yaml) [数据库迁移](docs/DATABASE.md)
-- [五人用户试用](docs/USER_VALIDATION.md) 和 [商业化验证](docs/COMMERCIAL_VALIDATION.md) 可用于安排试用和收集行为证据。公网部署、实时外部服务复测及真人试用结果仍待验收。
+- [五人试用计划](docs/USER_VALIDATION.md) 和 [商业化验证](docs/COMMERCIAL_VALIDATION.md) 用于安排后续试用和收集行为证据。首轮小样本反馈见[试用与迭代](docs/stage11/USER_TRIAL_RECAP.md)。公网部署与独立试用仍待验收。
 
 ## 本地启动
 
-Windows 可运行 `scripts/start_desktop.ps1` 打开独立窗口。启动器会复用已有的本地服务，缺少时启动 MySQL、API 和前端。后台 AI 任务进程单独启动。
+Windows 可运行 `scripts/start_desktop.ps1` 打开独立窗口。启动器按需启动 MySQL、API、前端、简历和岗位任务进程。两个专用任务进程处理本地解析及经页面确认发送至阿里云百炼的 AI 任务。使用其他 AI 模块时，按下文启动完整任务进程。
 
 请在独立的 PowerShell 窗口运行各项命令。先等 MySQL 启动，再运行后端和任务进程。
 
@@ -49,7 +49,7 @@ Set-Location backend
 
 职业画像入口是 [AI 职业画像](http://127.0.0.1:5173/career-profile)，登录后使用。AI 调用需在本地配置 `LLM_BASE_URL`、`LLM_MODEL` 和 `LLM_API_KEY`。项目当前使用阿里云百炼的北京兼容端点与 `deepseek-v4.1-flash`。变更配置后重启 FastAPI 和任务进程。详见 [Provider 配置、流程与评测](docs/RESUME_AI.md)。
 
-[岗位匹配](http://127.0.0.1:5173/job-matching) 支持 JD 导入、证据评分、历史报告和求职建议。岗位与简历共用同一个 Worker。评分规则和操作步骤见 [岗位匹配说明](docs/JOB_MATCHING.md)。
+[岗位匹配](http://127.0.0.1:5173/job-matching) 支持 JD 导入、证据评分、历史报告和求职建议。桌面入口会启动岗位专用 Worker，完整 Worker 也可处理岗位任务。评分规则和操作步骤见 [岗位匹配说明](docs/JOB_MATCHING.md)。
 
 [求职执行工作台](http://127.0.0.1:5173/application-workspace) 支持岗位录入与收藏、简历版本、投递看板、日程、数据分析和 AI 策略。升级到数据库迁移 `20261121_0009` 后重启后端和共享 Worker。详细流程、统计口径和复测命令见 [第九阶段说明](docs/JOB_APPLICATIONS.md)。
 

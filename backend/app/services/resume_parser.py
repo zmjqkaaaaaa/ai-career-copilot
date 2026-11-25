@@ -8,8 +8,10 @@ from pypdf import PdfReader, apply_configuration
 from pypdf.errors import LimitReachedError
 
 from app.core.errors import ApiError
+from app.services.pdf_text_encoding import restore_gb1_text_mapping
+from app.services.resume_sections import split_section_blocks
 
-PARSER_VERSION = "1"
+PARSER_VERSION = "4"
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_TEXT_CHARS = 30_000
 MAX_PDF_PAGES = 20
@@ -71,36 +73,54 @@ def pdf_sections(stream):
             if len(reader.pages) > MAX_PDF_PAGES:
                 raise ApiError(413, "PDF_TOO_LONG", "PDF 最多支持 20 页")
             for number, page in enumerate(reader.pages, 1):
+                restore_gb1_text_mapping(page)
                 for paragraph in split_blocks(page.extract_text() or ""):
                     yield f"第 {number} 页", paragraph
     except LimitReachedError:
         raise ApiError(413, "PDF_TOO_COMPLEX", "PDF 内容超过处理上限") from None
+
+def docx_row_text(row):
+    cells = []
+    for cell in row.cells:
+        parts = []
+        for element in cell.iter_inner_content():
+            if isinstance(element, Table):
+                parts.extend(value for nested_row in element.rows if (value := docx_row_text(nested_row)))
+            elif element.text.strip():
+                parts.append(element.text.strip())
+        if parts:
+            cells.append("\n".join(parts))
+    return " | ".join(dict.fromkeys(cells))
+
 
 def docx_sections(stream):
     document = Document(stream)
     for index, element in enumerate(document.iter_inner_content(), 1):
         if isinstance(element, Table):
             for row in element.rows:
-                cells = list(dict.fromkeys(cell.text.strip() for cell in row.cells if cell.text.strip()))
-                if cells:
-                    yield f"表格 {index}", " | ".join(cells)
+                if value := docx_row_text(row):
+                    yield f"表格 {index}", value
         else:
             for paragraph in split_blocks(element.text):
                 yield f"段落 {index}", paragraph
 
-def parse_resume(path: Path, file_type: str) -> list[dict]:
+def parse_resume(path: Path, file_type: str, *, identify_sections=True) -> list[dict]:
     try:
         with path.open("rb") as stream:
             validate_file(stream, file_type)
             sections = pdf_sections(stream) if file_type == "pdf" else docx_sections(stream)
             blocks = []
             size = 0
-            for location, value in sections:
+            parts = split_section_blocks(sections) if identify_sections else ((location, text, None) for location, text in sections)
+            for location, value, section in parts:
                 value = value.replace("\x00", "")
                 size += len(value)
                 if size > MAX_TEXT_CHARS or len(blocks) >= MAX_BLOCKS:
                     raise ApiError(413, "RESUME_TOO_LONG", "简历文本超出处理上限，请缩短后重新上传")
-                blocks.append({"number": len(blocks) + 1, "location": location, "text": value})
+                block = {"number": len(blocks) + 1, "location": location, "text": value}
+                if section:
+                    block["section"] = section
+                blocks.append(block)
     except ApiError:
         raise
     except FileNotFoundError as exc:

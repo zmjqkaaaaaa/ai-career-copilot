@@ -7,7 +7,10 @@ import { Feedback } from '../common/Feedback'
 import { states } from '../learning/LearningPanels'
 
 const skillLabels = { verified: '测评已验证', self_reported: '用户自述', inferred: '推断或参考', unknown: '待验证' } as const
-const gapLabels: Record<string, string> = { partial: '部分符合', unmet: '暂未满足', pending_not_provided: '证据待补充' }
+const gapLabels: Record<string, string> = {
+  partial: '部分符合', unmet: '暂未满足', pending_not_provided: '证据待补充',
+  pending_no_evidence: '条件待核实', pending_interview: '待面试核实',
+}
 
 export function OverviewPanel({ title, children, to, link }: {
   title: string; children: ReactNode; to?: string; link?: string

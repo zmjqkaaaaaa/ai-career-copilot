@@ -24,6 +24,7 @@ class Block(Schema):
     number: int
     location: str
     text: str
+    section: Literal["education", "internships", "projects", "skills", "certificates", "languages", "competitions", "other_experiences"] | None = None
 
 class Anchor(Schema):
     block_number: int = Field(ge=1, le=500, strict=True)
@@ -89,9 +90,12 @@ class ModelTrigger(Trigger):
     accept_external_processing: bool = False
     provider_host: Short | None = None
 
-class ExtractTrigger(ModelTrigger):
+class LocalDraftRequest(Schema):
     content_id: int = Field(gt=0)
     hidden_blocks: list[Annotated[int, Field(gt=0, le=500)]] = Field(default_factory=list, max_length=500)
+
+class ExtractTrigger(ModelTrigger, LocalDraftRequest):
+    pass
 
 class ContentEdit(Schema):
     content_id: int = Field(gt=0)
@@ -130,6 +134,10 @@ class JobRead(ModelRead):
     attempt: int
     result_id: int | None
     error_code: str | None
+    scheduled_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    worker_available: bool | None = None
 
 class ContentRead(ModelRead):
     id: int

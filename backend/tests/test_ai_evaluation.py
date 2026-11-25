@@ -34,6 +34,7 @@ def test_registry_detects_unversioned_edit_and_can_select_archived_revision(tmp_
         PromptRegistry([changed if row == current else row for row in definitions])
 
     archived = replace(current, prompt=replace(current.prompt, version="fixture-archive-v0"))
+    original_count = len(original.history(archived.prompt.name))
     metadata = original.metadata
     metadata["versions"].append({"prompt_name": archived.prompt.name, "version": archived.prompt.version,
                                  "created_at": None, "registered_at": "2026-11-21", "changelog": "Test fixture",
@@ -43,7 +44,7 @@ def test_registry_detects_unversioned_edit_and_can_select_archived_revision(tmp_
     local_registry = PromptRegistry([*definitions, archived], lock_path=path)
     assert local_registry.get(archived.prompt.name, archived.prompt.version) == archived
     assert local_registry.get(archived.prompt.name) == current
-    assert len(local_registry.history(archived.prompt.name)) == 2
+    assert len(local_registry.history(archived.prompt.name)) == original_count + 1
     with pytest.raises(ValueError, match="expected array field blocks"):
         current.validate_payload({"blocks": "Wrong kind"})
 

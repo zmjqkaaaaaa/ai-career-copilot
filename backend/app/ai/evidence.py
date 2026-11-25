@@ -3,7 +3,8 @@ import json
 import re
 
 from app.core.errors import ApiError
-from app.schemas.career import Anchor, AssessedSkill, CareerResult, OptimizationItem, SKILLS, StructuredResume
+from app.schemas.career import Anchor, AssessedSkill, CareerResult, Fact, OptimizationItem, SKILLS, StructuredResume
+from app.services.resume_sections import ENTRY_SECTIONS
 
 EMAIL = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.I)
 PHONE = re.compile(r"(?<!\d)(?:\+?86[ -]?)?1[3-9]\d(?:[ -]?\d){8}(?!\d)|(?<!\d)(?:\+\d{1,3}[ -])?\(?\d{3}\)?[ -]\d{3}[ -]\d{4}(?!\d)")
@@ -32,16 +33,39 @@ def lookup_blocks(blocks: list[dict]) -> dict[int, str]:
 def approved_text_digest(blocks: list[dict]) -> str:
     return hashlib.sha256(json.dumps(blocks, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
+def local_resume_facts(blocks: list[dict], sections=None) -> StructuredResume:
+    result = StructuredResume()
+    for block in blocks:
+        group = block.get("section")
+        if group not in StructuredResume.model_fields or (sections is not None and group not in sections):
+            continue
+        facts = getattr(result, group)
+        values = re.split(r"[、，,；;\n]", block["text"]) if group == "skills" else [block["text"]]
+        for value in values:
+            quote = value.strip()
+            if len(facts) >= (35 if group == "skills" else 15):
+                break
+            if not quote or not any(char.isalnum() for char in quote.replace("[已脱敏]", "")):
+                continue
+            facts.append(Fact(original=quote, source=Anchor(block_number=block["number"], quote=quote)))
+    return result
+
+
 def validate_extraction(result: StructuredResume, blocks: list[dict]) -> tuple[StructuredResume, int]:
     lookup = lookup_blocks(blocks)
+    local = local_resume_facts(blocks, ENTRY_SECTIONS)
+    grouped_blocks = {fact.source.block_number for group in ENTRY_SECTIONS for fact in getattr(local, group)}
     rejected = 0
     valid_count = 0
     for field in StructuredResume.model_fields:
-        valid = []
+        valid = getattr(local, field)
         for fact in getattr(result, field):
             if fact.source and anchor_exists(fact.source, lookup) and fact.original == fact.source.quote:
+                if field in ENTRY_SECTIONS and fact.source.block_number in grouped_blocks:
+                    continue  # An exact, complete source entry is already preserved under its heading.
                 status = "uncertain" if fact.status == "uncertain" else "extracted"
-                valid.append(fact.model_copy(update={"status": status, "normalized": redact_text(fact.normalized) if fact.normalized else None}))
+                if len(valid) < (35 if field == "skills" else 15):
+                    valid.append(fact.model_copy(update={"status": status, "normalized": redact_text(fact.normalized) if fact.normalized else None}))
             else:
                 rejected += 1
         setattr(result, field, valid)
