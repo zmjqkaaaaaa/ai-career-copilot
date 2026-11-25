@@ -15,7 +15,8 @@ function Evidence({ row }: { row: Row }) {
     <strong>{row.name}</strong> <span className="badge">{importanceLabels[row.importance]}</span>{' '}
     <span className="badge">{statusLabels[row.status]}</span>
     <blockquote>JD 原文 · {row.quote}</blockquote>
-    <p>{evidenceLabels[row.evidence_status]}</p>
+    <p>{evidenceLabels[row.evidence_status]}
+      {row.importance === 'required' && row.points === 0 && row.status.startsWith('pending') && ' · 本项暂计 0 分'}</p>
     {row.sources.map((item, index) => <blockquote key={index}>
       {item.block_number ? '简历原文 · 段落 ' + item.block_number : item.location || '参考材料'} · {item.quote}
     </blockquote>)}
@@ -23,6 +24,7 @@ function Evidence({ row }: { row: Row }) {
       {check.name} · {check.sources.length ? `有相关经历（段落 ${check.sources.map((source) => source.block_number).join('、')}）` : '待补经历证据'}
     </li>)}</ul>}
     {row.interpretation && <p>{row.interpretation}</p>}
+    {row.resume_suggestion && <p><strong>简历补充建议</strong> · {row.resume_suggestion}</p>}
   </div>
 }
 
@@ -31,6 +33,7 @@ export function JobReport({ match, gaps, adviceControls }: {
 }) {
   const adviceHeading = useId()
   const { score_details: result } = match
+  const fixedScore = result.score_method === 'fixed_evidence_weight'
   const priorityOrder: Record<string, number> = { 高: 0, 中: 1, 低: 2 }
   const orderedGaps = [...gaps].sort((a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3) || a.ordinal - b.ordinal)
   const advice = match.recommendations
@@ -38,9 +41,11 @@ export function JobReport({ match, gaps, adviceControls }: {
   return <div className="grid gap-4">
     <section className="surface detail-panel">
       <h2>匹配报告</h2>
-      <p>参考匹配分 <strong>{match.overall_score === null ? '证据不足，暂未评分' : `${match.overall_score} / 100`}</strong></p>
+      <p>{fixedScore ? '证据支持分' : '参考匹配分'} <strong>{match.overall_score === null ? '暂无可评分要求' : `${match.overall_score} / 100`}</strong></p>
       <p>证据覆盖率 <strong>{match.evidence_coverage === null ? '暂无可评硬性要求' : `${match.evidence_coverage}%`}</strong></p>
-      <p className="panel-description">参考分基于已评估的硬性要求，待核实项暂不计分。计算规则 {match.scoring_version}</p>
+      <p className="panel-description">{fixedScore
+        ? '按本 JD 的全部硬性要求计算。证据不足的条目暂计 0 分，状态保留为待核实。'
+        : '旧版报告只按已评估的硬性要求计算。'} 计算规则 {match.scoring_version}</p>
       <p>本次使用的简历 {match.resume
         ? <Link className="text-brand underline" to={resumeVersionPath(match.resume)}>{match.resume.original_filename} · 第 {match.resume.version} 版</Link>
         : '暂时无法定位原简历版本'}</p>

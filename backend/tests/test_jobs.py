@@ -35,7 +35,7 @@ def test_explicit_highest_degree_conflict_and_missing_qualification():
     known = score([requirement], {"education":["最高学历：本科"]}, {})
     unknown = score([requirement], {"education":["本科"]}, {})
     assert known["hard_flags"][0]["status"] == "unmet"
-    assert unknown["overall_score"] is None
+    assert unknown["overall_score"] == 0
 
 
 def test_same_resume_produces_distinct_grounded_evidence_for_each_jd():
@@ -57,7 +57,7 @@ def test_same_resume_produces_distinct_grounded_evidence_for_each_jd():
         assert related["sources"] == [{"block_number": block_number, "quote": quote}]
         assert missing["status"] == "pending_not_provided"
         assert report["hard_flags"][0] == related
-    assert score([SQL], {"practice": person["practice"][4:]}, {})["overall_score"] is None
+    assert score([SQL], {"practice": person["practice"][4:]}, {})["overall_score"] == 0
     assert score([SQL], person, {0: "not_capable"})["requirements"][0]["status"] == "unmet"
 
 
@@ -113,6 +113,23 @@ def test_ai_major_alone_does_not_prove_specific_technical_practice():
     ai, specific = score(requirements, person, {})["requirements"]
     assert ai["status"] == "partial" and ai["sources"] == [study]
     assert specific["status"] == "pending_not_provided"
+
+
+def test_new_prd_evidence_increases_support_with_a_fixed_jd():
+    sql = {"status": "self_reported", "level": "自述", "sources": [{"quote": "SQL"}]}
+    prd_evidence = {"block_number": 1, "quote": "撰写产品需求文档，定义库存周转监控指标。"}
+    required = [SQL, requirement("数据分析"), requirement("PRD", "product")]
+    before = score(required, {"skills": {"sql": sql}}, {})
+    after = score(required, {"skills": {"sql": sql}, "practice": [prd_evidence]}, {})
+    assert (before["overall_score"], before["evidence_coverage"]) == (15, 18.75)
+    assert (after["overall_score"], after["evidence_coverage"]) == (30.63, 81.25)
+    missing = before["requirements"][2]
+    assert missing["points"] == 0 and missing["status"] == "pending_not_provided"
+    assert "若确实写过 PRD" in missing["resume_suggestion"]
+    assert before["requirements"][1]["resume_suggestion"] == after["requirements"][1]["resume_suggestion"]
+    assert after["requirements"][2]["sources"] == [prd_evidence]
+    no_hard_requirements = score([PREFERRED], {}, {})
+    assert no_hard_requirements["overall_score"] is None and no_hard_requirements["evidence_coverage"] is None
 
 
 @pytest.mark.parametrize(("jd", "status"), [

@@ -4,7 +4,7 @@
 
 当前版本覆盖账户与档案、简历和职业画像、岗位匹配、产品探索、项目学习、模拟面试、成长中心和投递管理。登录后的驾驶舱汇总当前账号的记录。
 
-[产品作品集与演示入口](docs/stage11/PORTFOLIO.md) · [GitHub 项目说明](docs/stage11/README.md)
+[产品作品集与演示入口](docs/stage11/PORTFOLIO.md) · [简历复查实测演示](docs/stage11/DEMO_RESUME_REMATCH.md) · [GitHub 项目说明](docs/stage11/README.md)
 
 **核心场景**：用一份简历和一份目标 JD 找出最应该先补的证据。看完报告后，用户可修改一处真实经历，再使用同一份 JD 复查。项目、面试和投递记录保留所用资料的来源与版本。
 

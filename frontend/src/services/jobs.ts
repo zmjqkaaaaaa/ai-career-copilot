@@ -14,6 +14,8 @@ export type Job = {
 export type Row = Requirement & {
   ordinal: number; status: string; evidence_status: string; sources: { quote: string; block_number?: number; location?: string }[]
   interpretation?: string
+  points?: number | null
+  resume_suggestion?: string | null
   checks?: { name: string; sources: { quote: string; block_number: number }[] }[]
 }
 export type Gap = Row & { priority: string; why: string; action: string; practice: string; validation: string }
@@ -22,6 +24,7 @@ export type Match = {
   overall_score: number | null; evidence_coverage: number | null; scoring_version: string
   resume?: ResumeSource | null
   score_details: {
+    score_method?: 'fixed_evidence_weight'
     dimensions: Record<string, { weight: number; score: number | null; required: number; rated: number }>
     requirements: Row[]; hard_flags: Row[]; verdict: string
   }

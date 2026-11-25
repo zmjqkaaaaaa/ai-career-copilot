@@ -24,6 +24,22 @@ PRACTICE = {
     "industry": "整理一页行业场景与约束分析，并标明信息出处",
 }
 
+
+def resume_evidence_suggestion(requirement: dict, status: str) -> str | None:
+    if not status.startswith("pending"):
+        return None
+    name, kind = requirement["name"], requirement["kind"]
+    if kind in {"degree", "major", "graduation_year"}:
+        return f"若符合「{name}」，在简历的教育背景补充可核对的学历、专业、在读状态或毕业时间。"
+    if kind == "availability":
+        return "如能满足要求，在简历顶部补充真实的到岗日期、每周可实习天数和可连续实习时长。"
+    if name.casefold() == "prd" or "产品需求文档" in name:
+        return "若确实写过 PRD，在对应经历补充你负责的需求、文档中定义的规则或验收指标，以及可核对的产出。"
+    if requirement["category"] in {"data", "programming"}:
+        return f"若做过与「{name}」有关的任务，在简历对应经历补充数据对象、你的分析方法和一个可复查的结果。"
+    return f"若有体现「{name}」的真实经历，在简历对应的工作、实习或项目条目补充你的行动与可核对的产出。"
+
+
 def enrich(row: dict) -> dict:
     importance, status, dimension = row["importance"], row["status"], row["dimension"]
     is_pending = status.startswith("pending")

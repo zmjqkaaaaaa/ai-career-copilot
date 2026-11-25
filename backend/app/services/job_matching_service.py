@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 import re
 from sqlalchemy import select
 
@@ -11,6 +12,7 @@ from app.services.career import read_analysis
 from app.services.job_availability import compare_weekly_availability, resume_weekly_availability
 from app.services.job_context_evidence import contextual_evidence, needs_interview_evidence
 from app.services.job_parser import normalize_text
+from app.services.skill_gap_service import resume_evidence_suggestion
 
 ALIASES = {"产品需求分析": "产品思维", "编写sql": "sql", "数据处理": "数据分析",
            "prompt": "prompt engineering", "提示词工程": "prompt engineering", "人工智能": "ai技术理解"}
@@ -232,6 +234,10 @@ def compare_requirement(requirement: dict, person: dict, assessment: str | None)
         return "partial", "inferred", related
     return "pending_not_provided", "unknown", []
 
+def round_score(value: Decimal) -> float:
+    return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def score(requirements: list[dict], person: dict, assessments: dict[int, str]) -> dict:
     rows = []
     for index, requirement in enumerate(requirements):
@@ -255,28 +261,36 @@ def score(requirements: list[dict], person: dict, assessments: dict[int, str]) -
             for check in checks:
                 sources.extend(source for source in check["sources"] if source not in sources)
         dimension = DIMENSIONS.get(requirement["category"], requirement["category"])
-        factor = {"matched": 1, "partial": .5, "unmet": 0}.get(status)
-        points = None if factor is None else factor * EVIDENCE[evidence]
+        factor = {"matched": 1, "partial": .5}.get(status, 0)
+        points = factor * EVIDENCE.get(evidence, 0)
         if requirement["kind"] == "degree" and "在读" in requirement["quote"] and status.startswith("pending") and sources:
             note = "已有学历相关资料。此 JD 还要求当前在读，需要单独核对在校状态。"
         rows.append({**requirement, "ordinal": index, "status": status, "evidence_status": evidence,
                      "sources": sources[:5], "dimension": dimension, "points": points, "checks": checks,
+                     "resume_suggestion": resume_evidence_suggestion(requirement, status),
                      "interpretation": note or interpretation(requirement["kind"], status, evidence, checks)})
     dimensions = {}
+    applicable_weight = 0
+    weighted_points = Decimal(0)
+    covered_weight = Decimal(0)
     for name, weight in WEIGHTS.items():
         required = [row for row in rows if row["dimension"] == name and row["importance"] == "required"]
-        rated = [row["points"] for row in required if row["points"] is not None]
-        dimensions[name] = {"weight": weight, "score": round(100 * sum(rated) / len(rated), 2) if rated else None,
-                            "required": len(required), "rated": len(rated)}
-    scored = [item for item in dimensions.values() if item["score"] is not None]
-    applicable = [item for item in dimensions.values() if item["required"]]
-    overall = sum(item["weight"] * item["score"] for item in scored) / sum(item["weight"] for item in scored) if scored else None
-    coverage = (100 * sum(item["weight"] * item["rated"] / item["required"] for item in applicable)
-                / sum(item["weight"] for item in applicable)) if applicable else None
+        count = len(required)
+        rated = sum(not row["status"].startswith("pending") for row in required)
+        dimension_score = None
+        if count:
+            mean = sum(Decimal(str(row["points"])) for row in required) / count
+            dimension_score = round_score(100 * mean)
+            applicable_weight += weight
+            weighted_points += weight * mean
+            covered_weight += Decimal(weight) * rated / count
+        dimensions[name] = {"weight": weight, "score": dimension_score, "required": count, "rated": rated}
+    overall = round_score(100 * weighted_points / applicable_weight) if applicable_weight else None
+    coverage = round_score(100 * covered_weight / applicable_weight) if applicable_weight else None
     hard = [row for row in rows if row["importance"] == "required"
             and (row["status"] != "matched" or row["evidence_status"] == "inferred")]
     conflicts = [row for row in hard if row["status"] == "unmet"]
     verdict = "当前匹配较低，建议先补足关键能力" if conflicts else "建议补充准备后投递" if hard or overall is None or overall < 70 else "可以尝试投递"
-    return {"version": VERSION, "overall_score": round(overall, 2) if overall is not None else None,
-            "evidence_coverage": round(coverage, 2) if coverage is not None else None,
+    return {"version": VERSION, "score_method": "fixed_evidence_weight", "overall_score": overall,
+            "evidence_coverage": coverage,
             "dimensions": dimensions, "requirements": rows, "hard_flags": hard, "verdict": verdict}
