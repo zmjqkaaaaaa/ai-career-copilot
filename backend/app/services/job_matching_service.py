@@ -10,8 +10,8 @@ from app.models.career import CareerAnalysis
 from app.models.resume import Resume, ResumeContent
 from app.models.user_profile import UserProfile
 from app.services.career import read_analysis
-from app.services.job_availability import compare_weekly_availability, resume_weekly_availability
-from app.services.job_context_evidence import contextual_evidence, needs_interview_evidence
+from app.services.job_availability import compare_availability, resume_internship_duration, resume_weekly_availability
+from app.services.job_context_evidence import contextual_evidence, demonstrable_work, needs_interview_evidence
 from app.services.job_parser import normalize_text
 from app.services.practice_evidence import PRACTICE_TERMS, find_practice, term_pattern
 from app.services.resume_education import degree_rank, enrollment_lines
@@ -74,9 +74,9 @@ def interpretation(kind, status, evidence, checks):
         return "现有信息与条件存在明确冲突，投递前应优先核对这一项。"
     if kind == "availability":
         if status == "matched":
-            return "简历自述的每周实习天数达到这条 JD 的最低要求。"
+            return "简历自述的实习安排达到这条 JD 的要求。"
         if status == "partial":
-            return "每周实习天数达到要求，JD 中的其他到岗条件还需核对。"
+            return "部分实习安排已有原文依据，JD 中的其他到岗条件还需核对。"
         return "需要核对每周到岗天数、可连续实习时长和开始日期。"
     if status.startswith("pending"):
         return "当前资料没有足够的证据判断这条要求。先核对简历是否漏写相关经历或限定条件。"
@@ -123,9 +123,11 @@ def candidate(db, user_id: int, content_id: int, analysis_id: int | None) -> dic
             "majors": [value for value in (profile.undergraduate_major, profile.graduate_major) if value] if profile else [],
             "experience": experience,
             "practice": confirmed_practice(facts, blocks),
+            "reviewed_evidence": [{"block_number": block["number"], "quote": block["text"]} for block in blocks],
             "academic_evidence": confirmed_sources(facts, blocks, ("education",)),
             "internship_evidence": confirmed_sources(facts, blocks, ("internships",)),
             "weekly_availability": resume_weekly_availability(blocks),
+            "internship_duration": resume_internship_duration(blocks),
             "graduation_year": profile.graduation_year if profile else None,
             "assessment_year": date.today().year}
 
@@ -137,7 +139,7 @@ def compare_requirement(requirement: dict, person: dict, assessment: str | None)
     kind = requirement["kind"]
     quote = requirement["quote"]
     if kind == "availability":
-        return compare_weekly_availability(quote, person.get("weekly_availability", []))
+        return compare_availability(quote, person.get("weekly_availability", []), person.get("internship_duration", []))
     if kind == "graduation_year":
         years = [int(year) for year in re.findall(r"20\d{2}", quote)]
         year = person.get("graduation_year")
@@ -184,6 +186,8 @@ def compare_requirement(requirement: dict, person: dict, assessment: str | None)
         direct = [major for major in majors if normalize_text(major) in normalize_text(quote)]
         if direct:
             return "matched", "self_reported", [{"quote": value} for value in direct]
+    if work := demonstrable_work(requirement, person):
+        return "matched", "resume_supported", work
     related = related_practice(requirement, person) if kind in {"skill", "experience"} else []
     if related and not PRACTICE_LIMIT.search(quote) and not needs_interview_evidence(requirement):
         return "matched", "resume_supported", related
@@ -213,9 +217,9 @@ def score(requirements: list[dict], person: dict, assessments: dict[int, str]) -
         status, evidence, sources = compare_requirement(requirement, person, assessment)
         note = None
         if assessment is None and (status.startswith("pending") or evidence == "inferred"):
-            relevant, note = contextual_evidence(requirement, person)
+            relevant, note, contextual_status = contextual_evidence(requirement, person)
             if relevant:
-                status, evidence, sources = "partial", "inferred", relevant
+                status, evidence, sources = contextual_status, "resume_supported" if contextual_status == "matched" else "inferred", relevant
             elif status.startswith("pending") and needs_interview_evidence(requirement):
                 status = "pending_interview"
                 note = "这项行为或动机需要通过面试举例确认。当前简历不足以直接判断。"

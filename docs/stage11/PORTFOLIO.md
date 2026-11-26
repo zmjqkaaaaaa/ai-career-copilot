@@ -8,7 +8,7 @@
 
 1. [面试演示 PPTX](PROJECT_PRESENTATION.pptx) · 15 页，可编辑。
 2. [完整产品案例](PROJECT_CASE_STUDY.md) · 问题来源、竞品依据、MVP 取舍和质量验证。
-3. [完整案例：同一份 JD 复查新版简历](DEMO_RESUME_REMATCH.md) · 真实页面截图、合成素材、前后报告与评分取舍。[新一轮用户反馈与产品迭代](USER_TRIAL_FOLLOWUP.md) · [约四分钟产品演示脚本](DEMO_SCRIPT.md)
+3. [个人实测：同一份 JD 修改简历并复查](PERSONAL_RESUME_REMATCH.md) · 从建议、修改到复查，解释同分问题和产品迭代。[合成账号演示](DEMO_RESUME_REMATCH.md) · [新一轮用户反馈](USER_TRIAL_FOLLOWUP.md) · [约四分钟产品演示脚本](DEMO_SCRIPT.md)
 4. [GitHub 项目说明](README.md) · 页面截图、架构、安装、迁移和测试。
 5. [三版简历条目](RESUME_PROJECT_EXPERIENCE.md) · 分别面向 AI 产品、AI Agent 产品和 AI 应用产品。
 6. [PRD](PRD.md) · [设计方案](PRODUCT_DESIGN.md) · [技术架构](SYSTEM_ARCHITECTURE.md) · [评测证据](AI_EVALUATION.md)
@@ -25,6 +25,7 @@
 ## 可以出示的证据
 
 - 当前项目的真实页面、产品需求、工作流和代码入口可直接查阅。
+- 我用真实简历完成了一次「初次匹配、修改、同一 JD 复查」。同规则对比中，原版本地复算为 33.21，新版在页面获得 76.09。[个人实测记录](PERSONAL_RESUME_REMATCH.md)
 - 同一份 JD 的简历复查用合成账号在 Edge 实测。历史报告中，补充 PRD 经历后证据支持分从 15.00 升至 30.63，报告给出新原文和剩余补写建议。[演示案例](DEMO_RESUME_REMATCH.md) · [最新评分规则与验证](USER_TRIAL_FOLLOWUP.md)
 - 历史业务验收以合成数据、MySQL 与浏览器执行，外部依赖按记录受控。
 - 历史真实模型使用 12 条合成样本，业务检查通过 9 条。没有真人转化率、录用提升数据或公网部署成果。

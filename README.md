@@ -12,7 +12,7 @@
 
 [产品核心案例](docs/stage11/PROJECT_CASE_STUDY.md) · [首轮用户试用与产品迭代](docs/stage11/USER_TRIAL_RECAP.md) · [系统与 AI 架构图](docs/stage11/SYSTEM_ARCHITECTURE.md) · [本地运行与数据库初始化](docs/stage11/README.md#本地运行)
 
-[新一轮试用与迭代](docs/stage11/USER_TRIAL_FOLLOWUP.md) 记录作品集接入、个人档案预填和 JD 匹配权重调整的依据与验证结果。
+[新一轮试用与迭代](docs/stage11/USER_TRIAL_FOLLOWUP.md) 记录作品集接入、个人档案预填和 JD 匹配权重调整的依据与验证结果。[个人简历复查实测](docs/stage11/PERSONAL_RESUME_REMATCH.md) 展示项目负责人如何用同一份 JD 完成修改和复查，并修复新增证据未进入评分的问题。
 
 ## 第十阶段交付
 

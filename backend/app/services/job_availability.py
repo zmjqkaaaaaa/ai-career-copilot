@@ -8,6 +8,13 @@ WEEKLY_DAYS = re.compile(
     r"(?:\s*(?:及以上|或以上|以上|起))?"
 )
 NUMBERS = dict(zip("一二两兩三四五六七", (1, 2, 2, 2, 3, 4, 5, 6, 7)))
+MONTH_NUMBERS = {**NUMBERS, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12}
+INTERNSHIP_MONTHS = re.compile(
+    r"(?:(?:可(?:以)?|至少|连续|持续)\s*(?:持续|连续)?\s*实习|实习(?:时长|周期)\s*[：:]?)\s*"
+    r"(?P<minimum>至少|不少于|不低于|超过)?\s*"
+    r"(?P<months>[0-9０-９]{1,2}|十[一二]?|[一二两兩三四五六七八九])\s*个?\s*月"
+    r"(?P<above>\s*(?:及以上|或以上|以上|起))?"
+)
 DECLARATION = re.compile(r"可|能|实习安排|到岗安排|实习时间|到岗时间")
 PREVIOUS_OR_UNCERTAIN = re.compile(r"曾|此前|之前|上段|过去|预计|计划|希望|争取|尚不确定|无法|不能|不可|未能|不保证|不一定|至少|不少于|不低于|以上|[~～—]|左右|约|至多|最多|仅")
 OTHER_CONDITION = re.compile(
@@ -55,3 +62,57 @@ def compare_weekly_availability(quote: str, statements: list[dict]):
         return "unmet", "self_reported", sources
     status = "partial" if OTHER_CONDITION.search(surrounding) else "matched"
     return status, "self_reported", sources
+
+
+def internship_months(match: re.Match) -> int:
+    value = match["months"]
+    return MONTH_NUMBERS[value] if value in MONTH_NUMBERS else int(value)
+
+
+def resume_internship_duration(blocks: list[dict]) -> list[dict]:
+    statements = []
+    for block in blocks:
+        for clause in re.split(r"[；;。！!？?\n|｜，,]", block["text"]):
+            for match in INTERNSHIP_MONTHS.finditer(clause):
+                surrounding = clause[:match.start()] + clause[match.end():]
+                if PREVIOUS_OR_UNCERTAIN.search(surrounding) or re.search(r"上[一段]|上一份|历时|共计|累计|左右|以内|[-–～~]", surrounding):
+                    continue
+                lower_bound = bool(match["minimum"] or match["above"] or match[0].startswith("至少"))
+                statement = {"months": internship_months(match) + int(match["minimum"] == "超过"),
+                             "lower_bound": lower_bound, "block_number": block["number"], "quote": match[0]}
+                if statement not in statements:
+                    statements.append(statement)
+    return statements
+
+
+def compare_availability(quote: str, weekly: list[dict], durations: list[dict]):
+    months = list(INTERNSHIP_MONTHS.finditer(quote))
+    if not months:
+        return compare_weekly_availability(quote, weekly)
+    month = months[0]
+    remaining = quote[:month.start()] + quote[month.end():]
+    if len(months) != 1 or re.search(r"或|最多|至多|不超过|少于|低于|左右|以内|[-–～~]|不要求|无需", remaining):
+        return "pending_no_evidence", "unknown", []
+    minimum = internship_months(month) + int(month["minimum"] == "超过")
+    sources = [{"block_number": item["block_number"], "quote": item["quote"]} for item in durations[:3]]
+    limits = {item["months"] for item in durations}
+    duration_status = "pending_no_evidence" if sources else "pending_not_provided"
+    if len(limits) == 1:
+        if next(iter(limits)) >= minimum:
+            duration_status = "matched"
+        elif not any(item["lower_bound"] for item in durations):
+            duration_status = "unmet"
+    if WEEKLY_DAYS.search(remaining):
+        week_status, _, week_sources = compare_weekly_availability(remaining, weekly)
+        sources.extend(week_sources)
+        statuses = {duration_status, week_status}
+        if "unmet" in statuses:
+            return "unmet", "self_reported", sources
+        if statuses == {"matched"}:
+            return "matched", "self_reported", sources
+        if statuses & {"matched", "partial"}:
+            return "partial", "self_reported", sources
+        return "pending_no_evidence" if sources else "pending_not_provided", "unknown", sources
+    if duration_status == "matched" and OTHER_CONDITION.search(remaining):
+        duration_status = "partial"
+    return duration_status, "unknown" if duration_status.startswith("pending") else "self_reported", sources

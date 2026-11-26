@@ -11,7 +11,7 @@ from app.models.career import CareerAnalysis, SkillEvidence, SkillProfile
 from app.models.job import JobAnalysisTask, JobMatch
 from app.models.resume import Resume, ResumeContent
 from app.models.user import User
-from app.services.job_availability import resume_weekly_availability
+from app.services.job_availability import resume_internship_duration, resume_weekly_availability
 from app.services.job_matching_service import confirmed_practice, score
 from app.services.job_workflow import run_job_once
 from job_cases import CASES, PREFERRED, SQL, requirement
@@ -207,6 +207,64 @@ def test_weekly_availability_does_not_reuse_past_experience_or_pick_conflicting_
     row, = score([entry], {"weekly_availability": resume_weekly_availability(reviewed)}, {})["requirements"]
     assert row["status"] == "pending_no_evidence"
 
+
+def test_matching_uses_wrapped_education_duration_and_project_evidence():
+    education = "合成大学 计算机 硕士研究生\n2026.09 - 2028.06（预计）\n另一所大学 数学 本科"
+    project = "参与库存原型开发，通过\nCodex 协作实现异步解析和匹配报告。"
+    header = [{"number": 1, "text": "每周可实习 6 天 | 可实习 6 个月以上"}]
+    person = {"assessment_year": 2026, "education": [education],
+              "academic_evidence": [{"block_number": 2, "quote": education}],
+              "practice": [{"block_number": 3, "quote": project}],
+              "weekly_availability": resume_weekly_availability(header), "internship_duration": resume_internship_duration(header)}
+    jd = [
+        requirement("本科及以上学历在读", "education", kind="degree", quote="本科及以上学历在读"),
+        requirement("可实习3个月以上", "practice", kind="availability", quote="可实习3个月以上"),
+        requirement("深度使用 AI Agent 类 AI 工具", "ai", quote="高频使用 Claude Code / Codex 等 AI Agent 类产品，清楚表达改进思路"),
+        requirement("有可展示的作品", "practice", kind="experience", quote="有可展示的作品（个人产品、上线App、开源贡献均可）"),
+    ]
+    rows = score(jd, person, {})["requirements"]
+    assert [row["status"] for row in rows] == ["matched", "matched", "partial", "matched"]
+    assert rows[0]["sources"] == [{"block_number": 2, "quote": "合成大学 计算机 硕士研究生\n2026.09 - 2028.06（预计）"}]
+    assert rows[1]["sources"] == [{"block_number": 1, "quote": "可实习 6 个月以上"}]
+    assert rows[2]["sources"] == rows[3]["sources"] == [{"block_number": 3, "quote": project}]
+    assert "使用频率" in rows[2]["interpretation"]
+    missing = score(jd[2:], {"practice": [{"block_number": 3, "quote": "个人项目负责人。计划使用 Codex 搭建原型。"}]}, {})
+    assert all(row["status"] == "pending_not_provided" for row in missing["requirements"])
+
+
+def test_duration_checks_explicit_current_commitments_separately_from_weekly_days():
+    blocks = [{"number": 1, "text": "上一段可实习八个月。不能连续实习九个月。每周可实习六天，可持续实习六个月以上。"}]
+    person = {"weekly_availability": resume_weekly_availability(blocks), "internship_duration": resume_internship_duration(blocks)}
+    assert [(item["months"], item["lower_bound"]) for item in person["internship_duration"]] == [(6, True)]
+    entry = requirement("到岗条件", "practice", kind="availability", quote="每周至少实习四天且连续实习三个月")
+    assert score([entry], person, {})["requirements"][0]["status"] == "matched"
+    longer = {**entry, "quote": "可实习七个月以上"}
+    assert score([longer], person, {})["requirements"][0]["status"] == "pending_no_evidence"
+
+
+def test_added_ai_and_user_experience_evidence_improves_same_jd_score():
+    jd = [
+        requirement("AI Agent 工具深度使用", "ai", quote="日常高频使用 Codex 等 AI Agent 类产品，能清晰表达使用体感与改进思路"),
+        requirement("对用户体验有敏锐感知", "product", quote="善于从自身使用场景中发现问题并提出解决方案"),
+        requirement("自驱力与学习能力", "product"),
+        requirement("对 AI Agent、Skills、Memory 等概念有基本认知", "ai", importance="preferred",
+                    quote="对 AI Agent、Skills、Memory 等概念有基本认知者优先"),
+    ]
+    old = {"practice": [{"block_number": 1, "quote": "使用 Codex 开发项目原型。"}]}
+    updated = {"practice": [{"block_number": 2, "quote": (
+        "每天使用 Codex 3 小时以上，开发原型和调试。"
+        "本人自测发现报告需要返回顶部确认。推动在报告内增加确认入口。"
+        "发现日期漏判后补了回归用例，协作修复后复查结果。主动邀请同学试用，整理反馈并推动修复。"
+    )}], "reviewed_evidence": [{"block_number": 3, "quote": "熟悉并使用过 AI Agent、Skills、Memory。"}]}
+    before, after = (score(jd, person, {}) for person in (old, updated))
+    assert [row["status"] for row in before["requirements"]] == ["partial", "pending_not_provided", "pending_interview", "pending_not_provided"]
+    assert [row["status"] for row in after["requirements"]] == ["matched", "matched", "partial", "matched"]
+    assert after["overall_score"] > before["overall_score"]
+    assert after["requirements"][3]["sources"] == updated["reviewed_evidence"]
+    few_concepts = {"reviewed_evidence": [{"block_number": 1, "quote": "熟悉 AI Agent，尚未使用 Skills 与 Memory。"}]}
+    assert score(jd[3:], few_concepts, {})["requirements"][0]["status"] == "pending_not_provided"
+    assert score(jd[:1], updated, {0: "no_evidence"})["requirements"][0]["status"] == "pending_no_evidence"
+
 def seed_candidate(email):
     with session_factory().begin() as db:
         owner = db.scalar(select(User).where(User.email == email))
@@ -303,7 +361,7 @@ def test_job_lifecycle(client, register_account, bearer_headers, monkeypatch):
     matched = client.post(url + "/match", headers=own, json=request)
     assert matched.status_code == 200, matched.text
     match = matched.json()
-    assert match["overall_score"] == 66.67 and match["scoring_version"] == "job-match-v8"
+    assert match["overall_score"] == 66.67 and match["scoring_version"] == "job-match-v10"
     assert match["resume"]["original_filename"] == "合成简历.pdf"
     assert match["resume"]["version"] == 1 and match["resume"]["content_id"] == content
     assert client.get(f"{API}/resumes/{match['resume']['resume_id']}/content",
