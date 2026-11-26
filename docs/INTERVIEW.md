@@ -54,6 +54,6 @@ $env:DB_NAME='career_copilot_test'
 & ./.venv/Scripts/python.exe -m pytest -q
 ```
 
-React、FastAPI 和共享 Worker 的启动方式见 [README](../README.md)。浏览器测试通过 `CAREER_INTERVIEW_BROWSER=1` 和 `CAREER_E2E_URL` 指向隔离前后端。真实 GitHub 与百炼验收通过 `CAREER_LIVE_INTERVIEWS=1` 启用，四组评分对照通过 `CAREER_LIVE_INTERVIEW_CALIBRATION=1` 启用，可设置 `CAREER_INTERVIEW_REPORT_DIR` 保存 JSON 报告。
+React、FastAPI 和共享 Worker 的启动方式见[开发文档](LOCAL_DEVELOPMENT.md#本地启动)。浏览器测试通过 `CAREER_INTERVIEW_BROWSER=1` 和 `CAREER_E2E_URL` 指向隔离前后端。真实 GitHub 与百炼验收通过 `CAREER_LIVE_INTERVIEWS=1` 启用，四组评分对照通过 `CAREER_LIVE_INTERVIEW_CALIBRATION=1` 启用，可设置 `CAREER_INTERVIEW_REPORT_DIR` 保存 JSON 报告。
 
 [面试报告与训练示例](examples/interview-review.md)提供公开代码对照、复盘过程和可检验的练习任务。

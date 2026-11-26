@@ -16,7 +16,7 @@ Caddy 同时提供 React 构建产物和反向代理。浏览器用同一个域�
 
 ## 本地与测试
 
-原生 PowerShell 启动方式见 [README](../README.md)。Docker 方式需要 Linux 容器引擎和 Compose 2.24.4 或更新版本。首次启动会拉取 Python、Node、Caddy 和 MySQL 基础镜像。Windows 上 Docker 管理自己的容器和数据库卷位置，项目目录仍在 D 盘。可在 Docker 的磁盘设置中查看其实际存储位置。
+原生 PowerShell 启动方式见[开发文档](LOCAL_DEVELOPMENT.md#本地启动)。Docker 方式需要 Linux 容器引擎和 Compose 2.24.4 或更新版本。首次启动会拉取 Python、Node、Caddy 和 MySQL 基础镜像。Windows 上 Docker 管理自己的容器和数据库卷位置，项目目录仍在 D 盘。可在 Docker 的磁盘设置中查看其实际存储位置。
 
 在项目根目录创建本地环境文件，并为数据库应用账号、管理员和 JWT 分别填写新随机值。示例留空，缺少必填配置时 Compose 会退出。可为每个值分别运行 `python -c "import secrets; print(secrets.token_hex(32))"`，并将输出直接填入本地文件。可选模型配置留空时仍能验证登录、档案、首页和本地业务。
 

@@ -12,7 +12,7 @@
 4. [GitHub 项目说明](README.md) · 页面截图、架构、安装、迁移和测试。
 5. [三版简历条目](RESUME_PROJECT_EXPERIENCE.md) · 分别面向 AI 产品、AI Agent 产品和 AI 应用产品。
 6. [PRD](PRD.md) · [设计方案](PRODUCT_DESIGN.md) · [技术架构](SYSTEM_ARCHITECTURE.md) · [评测证据](AI_EVALUATION.md)
-7. [面试训练](INTERVIEW_QUESTIONS.md) · 105 道深度题、1/3/5 分钟陈述、代码定位和评分报告。
+7. [三套面试讲稿](INTERVIEW_PITCHES.md) · 面向 HR、产品经理和技术产品经理的 30 秒、2 分钟与 5 分钟版本。[面试题库](INTERVIEW_QUESTIONS.md) · 105 道深度题、代码定位和评分报告。
 
 ## 面向实习面试的讲述重点
 
