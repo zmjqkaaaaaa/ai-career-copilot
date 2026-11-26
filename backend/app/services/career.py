@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 from app.core.errors import ApiError
 from app.models.career import CareerAnalysis, ResumeOptimization, SkillEvidence, SkillProfile
 from app.models.resume import Resume, ResumeContent
-from app.schemas.career import AnalysisRead, CareerResult, OptimizationItem, SKILLS
+from app.schemas.career import AnalysisRead, GroundedCareerResult, OptimizationItem, SKILLS
 from app.services.resumes import utc_now
 
-def store_analysis(db: Session, user_id: int, content_id: int, target: str, result: CareerResult,
+def store_analysis(db: Session, user_id: int, content_id: int, target: str, result: GroundedCareerResult,
                    model: str, prompt_version: str) -> int:
     analysis = CareerAnalysis(user_id=user_id, content_id=content_id, target_direction=target,
                               analysis_result=result.model_dump(mode="json", exclude={"skills"}),

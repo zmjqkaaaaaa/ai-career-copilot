@@ -1,10 +1,11 @@
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
 import re
 from sqlalchemy import select
 
 from app.ai.evidence import lookup_blocks
 from app.core.errors import ApiError
-from app.core.job_scoring import DIMENSIONS, EVIDENCE, VERSION, WEIGHTS
+from app.core.job_scoring import DIMENSIONS, EVIDENCE, IMPORTANCE_WEIGHT, VERSION, WEIGHTS
 from app.models.career import CareerAnalysis
 from app.models.resume import Resume, ResumeContent
 from app.models.user_profile import UserProfile
@@ -12,32 +13,13 @@ from app.services.career import read_analysis
 from app.services.job_availability import compare_weekly_availability, resume_weekly_availability
 from app.services.job_context_evidence import contextual_evidence, needs_interview_evidence
 from app.services.job_parser import normalize_text
+from app.services.practice_evidence import PRACTICE_TERMS, find_practice, term_pattern
+from app.services.resume_education import degree_rank, enrollment_lines
 from app.services.skill_gap_service import resume_evidence_suggestion
 
 ALIASES = {"产品需求分析": "产品思维", "编写sql": "sql", "数据处理": "数据分析",
            "prompt": "prompt engineering", "提示词工程": "prompt engineering", "人工智能": "ai技术理解"}
-PRACTICE_TERMS = {
-    "产品思维": ("需求拆解", "业务流程设计", "梳理业务流程"),
-    "需求分析": ("需求拆解", "需求梳理", "梳理需求"),
-    "用户研究": ("用户访谈", "访谈用户", "用户调研"),
-    "竞品分析": ("竞品对比", "对比竞品"),
-    "prd": ("产品需求文档",),
-    "流程设计": ("业务流程图", "业务流转图"),
-    "原型设计": ("设计原型", "页面原型", "交互原型"),
-    "效果评估": ("验收标准", "评测指标", "评估效果", "测试用例", "质量评估"),
-    "提示词工程": ("prompt", "提示词设计", "编写提示词"),
-    "rag": ("检索增强生成",),
-    "sql": ("结构化查询语言",),
-}
-ACTION = re.compile(
-    r"参与|协助|负责|设计|分析|使用|利用|通过|访谈|梳理|拆解|编写|撰写|输出|整理|"
-    r"验证|核对|完成|搭建|开发|构建|评估|开展|绘制|实现|维护|对比|形成|导入|制作|调研|建立|采集|"
-    r"\b(?:used|built|wrote|designed|analyzed|tested|conducted)\b", re.I,
-)
-HYPOTHETICAL = re.compile(
-    r"计划|拟用|拟开展|希望|待补|待学习|尚未|未曾|没有|未掌握|未完成|未使用|未用|未参与|"
-    r"未接触|不会|由.*?负责|他人|队友|同事负责|\b(?:planned|will|not|didn.t)\b", re.I,
-)
+PRACTICE_LIMIT = re.compile(r"熟练|精通|独立|至少|[0-9一二三四五六七八九十]+(?:个)?[年月周]|实习经历|实习经验|正式工作|全职|上线|生产环境|\b(?:advanced|expert)\b", re.I)
 
 def skill_key(name: str) -> str:
     key = re.sub(r"\s+", "", normalize_text(name))
@@ -63,26 +45,8 @@ def confirmed_practice(facts: dict, blocks: list[dict]) -> list[dict]:
 
 
 def related_practice(requirement: dict, person: dict) -> list[dict]:
-    name = normalize_text(requirement["name"])
-    terms = {name, skill_key(name), *PRACTICE_TERMS.get(name, ())}
-    patterns = [term_pattern(term) for term in sorted(terms) if len(term) > 1]
-    sources = []
-    for item in person.get("practice", []):
-        # Evaluate an action in its own sentence. Keep the full confirmed quote in the report.
-        for clause in re.split(r"[。；;！!？?\n]", item["quote"]):
-            clause = normalize_text(clause)
-            if ACTION.search(clause) and not HYPOTHETICAL.search(clause) and any(pattern.search(clause) for pattern in patterns):
-                if item not in sources:
-                    sources.append(item)
-                break
-        if len(sources) == 3:
-            break
-    return sources
-
-
-def term_pattern(term: str):
-    literal = re.escape(term)
-    return re.compile(r"(?<![a-z0-9])" + literal + r"(?![a-z0-9])" if term.isascii() else literal)
+    name = requirement["name"]
+    return find_practice(name, person.get("practice", []), (skill_key(name),))
 
 
 def requirement_checks(requirement: dict, person: dict) -> list[dict]:
@@ -93,7 +57,7 @@ def requirement_checks(requirement: dict, person: dict) -> list[dict]:
         return []  # Do not silently turn alternatives into cumulative conditions.
     checks = []
     for name, aliases in PRACTICE_TERMS.items():
-        if name == "产品思维":
+        if name in {"产品思维", "ai 技术理解", "prompt engineering"}:
             # This broad category overlaps with specific activities.
             continue
         if any(term_pattern(term).search(quote) for term in (name, *aliases)):
@@ -116,6 +80,8 @@ def interpretation(kind, status, evidence, checks):
         return "需要核对每周到岗天数、可连续实习时长和开始日期。"
     if status.startswith("pending"):
         return "当前资料没有足够的证据判断这条要求。先核对简历是否漏写相关经历或限定条件。"
+    if evidence == "resume_supported":
+        return "已确认的简历中有对应实践。" if status == "matched" else "简历有相关实践，这条要求还有条件需要核对。"
     if evidence == "inferred":
         return "相关经历可用于举例。请核实个人承担的工作、交付物，以及它是否达到 JD 要求的范围。"
     if status == "partial":
@@ -160,13 +126,8 @@ def candidate(db, user_id: int, content_id: int, analysis_id: int | None) -> dic
             "academic_evidence": confirmed_sources(facts, blocks, ("education",)),
             "internship_evidence": confirmed_sources(facts, blocks, ("internships",)),
             "weekly_availability": resume_weekly_availability(blocks),
-            "graduation_year": profile.graduation_year if profile else None}
-
-def degree_rank(text: str) -> int | None:
-    for index, tokens in reversed(list(enumerate((("大专","专科"),("本科","学士"),("硕士","研究生"),("博士",)), 1))):
-        if any(token in text for token in tokens):
-            return index
-    return None
+            "graduation_year": profile.graduation_year if profile else None,
+            "assessment_year": date.today().year}
 
 def compare_requirement(requirement: dict, person: dict, assessment: str | None):
     if assessment == "not_capable":
@@ -195,13 +156,16 @@ def compare_requirement(requirement: dict, person: dict, assessment: str | None)
         ranks = [rank for value in values if (rank := degree_rank(value)) is not None]
         minimum = degree_rank(quote)
         if minimum and ranks:
-            if "在读" in quote and not re.search(r"在读.{0,8}或.{0,8}毕业|毕业.{0,8}或.{0,8}在读", quote):
-                enrolled = [value for value in values if (degree_rank(value) or 0) >= minimum
-                            and re.search(r"在读|在校|就读中|\d{2}\s*(?:至|到|[-–—])\s*(?:至今|现在)", value)
-                            and not re.search(r"已毕业|已结业|不再在读|非在读|曾在读", value)]
-                if not enrolled:
-                    return "pending_no_evidence", "unknown", [{"quote": value} for value in values]
             qualifiers = [term for term in ("全日制", "统招", "应届") if term in quote]
+            if "在读" in quote and not re.search(r"在读.{0,8}或.{0,8}毕业|毕业.{0,8}或.{0,8}在读", quote):
+                academic = person.get("academic_evidence") or [{"quote": value} for value in person.get("education", [])]
+                year = person.get("assessment_year", date.today().year)
+                enrolled = [{**source, "quote": line} for source in academic
+                            for line in enrollment_lines(source["quote"], year)
+                            if (degree_rank(line) or 0) >= minimum and all(term in line for term in qualifiers)]
+                if enrolled:
+                    return "matched", "resume_supported", enrolled
+                return "pending_no_evidence", "unknown", academic or [{"quote": value} for value in values]
             if qualifiers and not any(all(term in value for term in qualifiers) for value in values):
                 return "pending_no_evidence", "unknown", [{"quote": value} for value in values]
             if re.search(r"已获得|已取得|取得.*学位|毕业证|已毕业", quote):
@@ -220,17 +184,21 @@ def compare_requirement(requirement: dict, person: dict, assessment: str | None)
         direct = [major for major in majors if normalize_text(major) in normalize_text(quote)]
         if direct:
             return "matched", "self_reported", [{"quote": value} for value in direct]
+    related = related_practice(requirement, person) if kind in {"skill", "experience"} else []
+    if related and not PRACTICE_LIMIT.search(quote) and not needs_interview_evidence(requirement):
+        return "matched", "resume_supported", related
     if kind == "skill":
         skill = person.get("skills", {}).get(skill_key(requirement["name"]))
         if skill and skill["status"] in EVIDENCE:
             advanced = bool(re.search(r"熟练|精通|独立完成|advanced|expert", quote, re.I))
-            partial = advanced and skill["level"] in {"基础", "自述"}
+            partial = (advanced and skill["level"] in {"基础", "自述"}) or (
+                skill["status"] != "verified" and bool(PRACTICE_LIMIT.search(quote)))
             return ("partial" if partial else "matched"), skill["status"], skill["sources"]
     if kind == "experience":
         matching = [value for value in person.get("experience", []) if normalize_text(requirement["name"]) == normalize_text(value)]
         if matching and not re.search(r"\d|至少|以上|全职", quote):
             return "matched", "self_reported", [{"quote": value} for value in matching]
-    if kind in {"skill", "experience"} and (related := related_practice(requirement, person)):
+    if related:
         return "partial", "inferred", related
     return "pending_not_provided", "unknown", []
 
@@ -255,6 +223,8 @@ def score(requirements: list[dict], person: dict, assessments: dict[int, str]) -
         if len(checks) > 1:
             if status == "matched" and any(not check["sources"] for check in checks):
                 status = "partial"
+            if status != "matched" and all(check["sources"] for check in checks) and not PRACTICE_LIMIT.search(requirement["quote"]):
+                status, evidence = "matched", "resume_supported"
             if status.startswith("pending") and any(check["sources"] for check in checks):
                 status, evidence = "partial", "inferred"
             sources = [*sources]
@@ -270,27 +240,40 @@ def score(requirements: list[dict], person: dict, assessments: dict[int, str]) -
                      "resume_suggestion": resume_evidence_suggestion(requirement, status),
                      "interpretation": note or interpretation(requirement["kind"], status, evidence, checks)})
     dimensions = {}
-    applicable_weight = 0
+    applicable_weight = Decimal(0)
     weighted_points = Decimal(0)
     covered_weight = Decimal(0)
     for name, weight in WEIGHTS.items():
-        required = [row for row in rows if row["dimension"] == name and row["importance"] == "required"]
-        count = len(required)
-        rated = sum(not row["status"].startswith("pending") for row in required)
+        entries = [(row, IMPORTANCE_WEIGHT[row["importance"]]) for row in rows if row["dimension"] == name]
+        rated = [priority for row, priority in entries if not row["status"].startswith("pending")]
+        denominator = sum(priority for _, priority in entries)
         dimension_score = None
-        if count:
-            mean = sum(Decimal(str(row["points"])) for row in required) / count
+        effective_weight = Decimal(0)
+        if denominator:
+            # Soft-only dimensions have less influence, even if they contain many requirements.
+            strongest = max(priority for _, priority in entries)
+            effective_weight = Decimal(weight * strongest) / IMPORTANCE_WEIGHT["required"]
+            mean = sum(Decimal(str(row["points"])) * priority for row, priority in entries) / denominator
             dimension_score = round_score(100 * mean)
-            applicable_weight += weight
-            weighted_points += weight * mean
-            covered_weight += Decimal(weight) * rated / count
-        dimensions[name] = {"weight": weight, "score": dimension_score, "required": count, "rated": rated}
+            applicable_weight += effective_weight
+            weighted_points += effective_weight * mean
+            covered_weight += effective_weight * sum(rated) / denominator
+        dimensions[name] = {"weight": weight, "effective_weight": float(effective_weight), "score": dimension_score,
+                            "required": sum(row["importance"] == "required" for row, _ in entries),
+                            "total": len(entries), "rated": len(rated)}
     overall = round_score(100 * weighted_points / applicable_weight) if applicable_weight else None
     coverage = round_score(100 * covered_weight / applicable_weight) if applicable_weight else None
     hard = [row for row in rows if row["importance"] == "required"
             and (row["status"] != "matched" or row["evidence_status"] == "inferred")]
     conflicts = [row for row in hard if row["status"] == "unmet"]
-    verdict = "当前匹配较低，建议先补足关键能力" if conflicts else "建议补充准备后投递" if hard or overall is None or overall < 70 else "可以尝试投递"
-    return {"version": VERSION, "score_method": "fixed_evidence_weight", "overall_score": overall,
+    if conflicts:
+        verdict = "当前匹配较低，建议先补足关键能力"
+    elif hard:
+        verdict = "建议先核对报告中尚未满足或缺证的硬性要求"
+    elif any(row["importance"] == "required" for row in rows):
+        verdict = "现有材料支持硬性要求，可以尝试投递"
+    else:
+        verdict = "无硬性要求，按报告中的条件与证据准备投递" if rows else "请先核对 JD 的岗位要求"
+    return {"version": VERSION, "score_method": "priority_weighted_evidence", "overall_score": overall,
             "evidence_coverage": coverage,
             "dimensions": dimensions, "requirements": rows, "hard_flags": hard, "verdict": verdict}

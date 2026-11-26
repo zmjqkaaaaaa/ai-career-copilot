@@ -161,7 +161,7 @@ export function JobMatchingPage() {
   }
 
   return <div className="career-page">
-    <section className="hero"><h1>岗位匹配</h1><p>核对岗位要求，用简历证据判断匹配和准备重点。</p></section>
+    <section className="hero"><h1>岗位匹配</h1><p>核对岗位要求，用简历或作品集证据判断匹配和准备重点。</p></section>
     {selection !== null && <Link className="text-ai" to={`/application-workspace?tab=positions&job=${selection}`}>在求职执行中查看岗位</Link>}
     <div className="career-tabs" role="group" aria-label="岗位匹配视图">
       <button className="button button-outline" aria-pressed={tab === 'positions'} onClick={() => setTab('positions')}>岗位管理</button>
@@ -257,14 +257,14 @@ export function JobMatchingPage() {
                 setJob({ ...saved, tasks: current.tasks })
                 setRequirements(saved.requirements)
               })}>确认岗位要求</button>
-              <label>简历内容版本<select value={content ?? ''} onChange={(event) => setContent(Number(event.target.value) || null)}>
-                {!versions.length && <option value="">请先确认一份结构化简历</option>}
+              <label>简历或作品集版本<select value={content ?? ''} onChange={(event) => setContent(Number(event.target.value) || null)}>
+                {!versions.length && <option value="">请先确认一份简历或作品集</option>}
                 {versions.map((item) => <option key={item.id} value={item.id}>{item.original_filename} · 第 {item.version} 版</option>)}
               </select></label>
               {selectedVersion?.resume_id && <Link className="text-brand underline" to={resumeVersionPath(selectedVersion)}>
-                查看所选简历：{selectedVersion.original_filename} · 第 {selectedVersion.version} 版
+                查看所选材料：{selectedVersion.original_filename} · 第 {selectedVersion.version} 版
               </Link>}
-              {versions.length === 1 && content === versions[0].id && <p className="panel-description">已自动选择唯一一份已确认的简历。</p>}
+              {versions.length === 1 && content === versions[0].id && <p className="panel-description">已自动选择唯一一份已确认的材料。</p>}
               {current.confirmed && running?.kind === 'parse' && <p className="panel-description">可使用已确认的第 {current.revision} 版岗位要求计算匹配。</p>}
               <button className="button button-filled" disabled={busy || !content || !current.confirmed || JSON.stringify(requirements) !== JSON.stringify(current.requirements)}
                 onClick={() => content && void act(async () => {

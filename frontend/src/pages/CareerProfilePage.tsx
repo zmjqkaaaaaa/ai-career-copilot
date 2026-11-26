@@ -10,14 +10,14 @@ import { errorMessage } from '../services/api'
 import { careerApi, factGroups } from '../services/career'
 import type { Analysis, Block, CareerReport, Content, Job, Optimization, Resume } from '../services/career'
 
-const views = { resumes: '简历管理', profile: '职业画像', optimization: '优化建议' } as const
+const views = { resumes: '简历与作品集', profile: '职业画像', optimization: '优化建议' } as const
 const parseLabels: Record<string, string> = { uploaded: '待解析', queued: '解析处理中', parsed: '已解析', failed: '解析失败', deleting: '待清理' }
 const operationNames = { parse: '本地解析', extract: '结构化提取', analyze: '职业分析', optimize: '简历优化' } as const
 const errors: Record<string, string> = {
   NO_RESUME_TEXT: '文件没有文字层，请上传可复制文字的 PDF 或 DOCX。',
   UNREADABLE_RESUME: '简历文件损坏或无法读取。',
   ENCRYPTED_PDF: '请先解除 PDF 密码保护。',
-  PDF_TOO_LONG: 'PDF 超过 20 页。',
+  PDF_TOO_LONG: 'PDF 超过 20 页。请选取最相关的项目案例，另存为不超过 20 页的 PDF 后上传。',
   PDF_TOO_COMPLEX: 'PDF 页面内容超过处理上限。',
   RESUME_TOO_LONG: '简历文字超过处理上限，请缩短后重新上传。',
   RESUME_FILE_MISSING: '找不到原始文件，请重新上传。',
@@ -194,7 +194,7 @@ export function CareerProfilePage() {
   return <div className="career-page">
     <section className="hero" aria-labelledby="career-heading">
       <h1 id="career-heading">AI 职业画像</h1>
-      <p>从简历定位能力证据，梳理目标方向并优化项目表达。</p>
+      <p>从简历或作品集提取项目经历和能力证据，梳理求职方向。</p>
     </section>
     {!linkedContent && <div className="career-tabs" role="group" aria-label="职业画像视图">
       {(Object.keys(views) as Array<keyof typeof views>).map((key) => <button type="button" key={key}
@@ -202,7 +202,7 @@ export function CareerProfilePage() {
     </div>}
     <div className="career-columns">
       <aside className="surface detail-panel career-files">
-        <h2>我的简历</h2>
+        <h2>我的简历与作品集</h2>
         <form className="account-form" onSubmit={(event) => {
           event.preventDefault()
           if (!file) return
@@ -220,7 +220,7 @@ export function CareerProfilePage() {
             }
           }, '上传成功，已提交本地解析。')
         }}>
-          <label>选择简历<input key={fileInput} type="file" accept=".pdf,.docx" onChange={(event) => {
+          <label>选择简历或作品集<input key={fileInput} type="file" accept=".pdf,.docx" onChange={(event) => {
             const candidate = event.target.files?.[0]
             setActionError('')
             if (candidate && (!/\.(pdf|docx)$/i.test(candidate.name) || candidate.size > 10 * 1024 * 1024)) {
@@ -228,10 +228,11 @@ export function CareerProfilePage() {
               setFile(null)
             } else setFile(candidate ?? null)
           }} /></label>
-          <p className="panel-description">PDF 或 DOCX，最多 10 MB。PDF 需包含文字层。</p>
-          <button className="button button-filled" disabled={busy || !file}><UploadCloud size={17} /> 上传简历</button>
+          <p className="panel-description">PDF 或 DOCX，最多 10 MB。PDF 最多 20 页，需包含文字层。</p>
+          <p className="panel-description">作品集请在文件名或首页标题注明「作品集」。用文字写清项目背景、个人贡献、设计过程和结果。页面图片与在线链接暂不读取。</p>
+          <button className="button button-filled" disabled={busy || !file}><UploadCloud size={17} /> 上传并解析</button>
         </form>
-        {resumes.length === 0 && !reading && <p className="panel-description">还没有上传简历。</p>}
+        {resumes.length === 0 && !reading && <p className="panel-description">还没有上传简历或作品集。</p>}
         {resumes.length > 0 && <ul className="career-files-list">{resumes.map((item) => <li key={item.id}>
           <button type="button" aria-pressed={selected === item.id} onClick={() => select(item.id)}>
             <FileText size={16} />
@@ -253,11 +254,11 @@ export function CareerProfilePage() {
         </p>}
         {!activeJob && latest?.state === 'failed' && <Feedback kind="error">{operationNames[latest.kind]}失败。{errors[latest.error_code ?? ''] ?? '暂时无法完成，可手动重试。'}</Feedback>}
         {!selectedResume && !reading && <section className="surface detail-panel">
-          <h2>从上传简历开始</h2><p className="panel-description">完成本地解析后，可以核对发给模型的内容。</p>
+          <h2>先上传简历或作品集</h2><p className="panel-description">解析完成后，请核对原文，再选择本地整理或提交所选文字给模型。</p>
         </section>}
         {selectedResume && linkedContent && currentContent?.id === linkedContent && currentContent.structured_data && <section className="surface detail-panel">
           <div className="section-heading"><h2>{selectedResume.original_filename}</h2><span className="badge">第 {currentContent.version} 版 · 匹配来源</span></div>
-          <details className="career-detail"><summary>查看本版核对过的简历原文</summary>
+          <details className="career-detail"><summary>查看本版核对过的原文</summary>
             {currentContent.model_blocks?.map((block) => <blockquote key={block.number} className="whitespace-pre-wrap">
               段落 {block.number} · {block.location}{'\n'}{block.text}
             </blockquote>)}
@@ -287,7 +288,7 @@ export function CareerProfilePage() {
             </div>}
           </section>
           {currentContent && !currentContent.structured_data && <section className="surface detail-panel">
-            <h2>核对简历原文</h2>
+            <h2>核对文件原文</h2>
             <p className="panel-description">已尝试遮盖联系方式，请再检查姓名等个人信息。取消勾选可隐藏整段。选择本地整理时只在本地生成草稿。选择「同意发送并提取」时，所选文字会发送到 {providerHost ?? '尚未配置的模型服务'}。</p>
             <div className="career-source-list">
               {current?.preview.map((block) => <label key={block.number}>
@@ -306,11 +307,12 @@ export function CareerProfilePage() {
             </button>
           </section>}
           {currentContent?.structured_data && <section className="surface detail-panel">
-            <div className="section-heading"><h2>结构化简历</h2><span className="badge">{currentContent.confirmed ? '已确认' : '待确认'} · 版本 {currentContent.version}</span></div>
+            <div className="section-heading"><h2>结构化材料</h2><span className="badge">{currentContent.confirmed ? '已确认' : '待确认'} · 版本 {currentContent.version}</span></div>
+            {currentContent.confirmed && <p className="panel-description">可在 <Link className="text-brand underline" to="/profile">个人档案</Link> 核对自动带入的信息。</p>}
             {currentContent.metadata_json?.method === 'local_sections' && <p className="panel-description">本地按原文标题整理。请核对分类和正文，未识别的标题下如有重要内容，可从原文补入。</p>}
             {Boolean(currentContent.metadata_json?.rejected) && <p className="panel-description">已排除 {currentContent.metadata_json?.rejected} 条无法核对原文的结果。</p>}
             <ResumeFacts key={currentContent.id} facts={currentContent.structured_data} modelBlocks={currentContent.model_blocks ?? []} confirmed={currentContent.confirmed} disabled={disabled}
-              onSave={(facts) => void perform(() => careerApi.update(selectedResume.id, currentContent.id, facts), '已保存结构化简历。')} />
+              onSave={(facts) => void perform(() => careerApi.update(selectedResume.id, currentContent.id, facts), '已保存结构化材料。')} />
           </section>}
         </>}
         {selectedResume && !linkedContent && view === 'profile' && <>

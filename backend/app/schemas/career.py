@@ -69,6 +69,12 @@ class CareerResult(Schema):
     recommended_projects: list[AnalysisPoint] = Field(default_factory=list, max_length=6)
     next_steps: list[AnalysisPoint] = Field(default_factory=list, max_length=8)
 
+class GroundedSkill(AssessedSkill):
+    status: Literal["verified", "resume_supported", "self_reported", "inferred", "unknown"]
+
+class GroundedCareerResult(CareerResult):
+    skills: list[GroundedSkill] = Field(default_factory=list, max_length=16)
+
 class OptimizationItem(Schema):
     section: Literal["结构", "内容", "真实性"]
     original: Anchor

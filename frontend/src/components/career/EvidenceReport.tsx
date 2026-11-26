@@ -2,7 +2,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import type { Anchor, CareerReport, EvidenceStatus, Point } from '../../services/career'
 
 const statusNames: Record<EvidenceStatus, string> = {
-  verified: '已验证', self_reported: '简历自述', inferred: 'AI 推断', unknown: '证据不足',
+  verified: '已通过测评', resume_supported: '简历有实践证据', self_reported: '简历自述', inferred: '相关背景支持', unknown: '简历暂缺证据',
 }
 
 function Sources({ sources }: { sources: Anchor[] }) {

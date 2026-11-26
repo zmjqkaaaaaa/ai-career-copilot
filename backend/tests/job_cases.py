@@ -18,7 +18,7 @@ CASES = [
     ("02-self", [SQL], {"skills": {"sql": skill("self_reported")}}, {}, (80, 100)),
     ("03-inferred", [RAG], {"skills": {"rag": skill("inferred")}}, {}, (50, 100)),
     ("04-unknown", [SQL], {}, {}, (0, 0)),
-    ("05-preferred", [SQL, PREFERRED], {"skills": {"sql": skill("verified")}}, {}, (100, 100)),
+    ("05-preferred", [SQL, PREFERRED], {"skills": {"sql": skill("verified")}}, {}, (66.67, 66.67)),
     ("06-year-conflict", [SQL, YEAR], {"skills": {"sql": skill("verified")}, "graduation_year": 2029}, {}, (60, 100)),
     ("07-degree", [DEGREE], {"degrees": ["本科"]}, {}, (80, 100)),
     ("08-mixed", [PRODUCT, SQL, RAG], {"skills": {"产品思维": skill("verified"), "sql": skill("self_reported")}}, {}, (56.92, 61.54)),

@@ -53,10 +53,10 @@ def test_same_resume_produces_distinct_grounded_evidence_for_each_jd():
     product = score([requirement("PRD", "product", kind="experience"), requirement("用户研究", "product")], person, {})
     for report, quote, block_number in [(data, sql, 1), (product, prd, 2)]:
         related, missing = report["requirements"]
-        assert (related["status"], related["evidence_status"]) == ("partial", "inferred")
+        assert (related["status"], related["evidence_status"]) == ("matched", "resume_supported")
         assert related["sources"] == [{"block_number": block_number, "quote": quote}]
         assert missing["status"] == "pending_not_provided"
-        assert report["hard_flags"][0] == related
+        assert report["hard_flags"] == [missing]
     assert score([SQL], {"practice": person["practice"][4:]}, {})["overall_score"] == 0
     assert score([SQL], person, {0: "not_capable"})["requirements"][0]["status"] == "unmet"
 
@@ -100,7 +100,9 @@ def test_matching_uses_ai_major_and_confirmed_work_as_contextual_evidence():
     assert pace["status"] == "pending_interview" and not pace["sources"]
     assert fine_tuning["status"] == "pending_not_provided"
     assert enrollment["status"] == "pending_no_evidence"
-    enrolled = score([requirements[-1]], {**person, "education": ["人工智能本科在读"]}, {})["requirements"][0]
+    enrolled_text = "人工智能本科在读"
+    enrolled = score([requirements[-1]], {**person, "education": [enrolled_text],
+                     "academic_evidence": [{"block_number": 2, "quote": enrolled_text}]}, {})["requirements"][0]
     assert enrolled["status"] == "matched"
     manual = score([requirements[0]], person, {0: "no_evidence"})["requirements"][0]
     assert manual["status"] == "pending_no_evidence" and not manual["sources"]
@@ -115,6 +117,30 @@ def test_ai_major_alone_does_not_prove_specific_technical_practice():
     assert specific["status"] == "pending_not_provided"
 
 
+def test_ongoing_education_and_its_qualifiers_use_the_same_resume_entry():
+    requirement_row = requirement("本科及以上学历在读", "education", kind="degree", quote="本科及以上学历在读")
+    education = "合成大学 本科 2021-2025 全日制\n合成大学 硕士 2025-2028"
+    person = {"education": [education], "academic_evidence": [{"block_number": 4, "quote": education}],
+              "assessment_year": 2026}
+    report = score([requirement_row], person, {})
+    assert report["overall_score"] == 80 and report["evidence_coverage"] == 100
+    row, = report["requirements"]
+    assert row["sources"] == [{"block_number": 4, "quote": "合成大学 硕士 2025-2028"}]
+    full_time = score([{**requirement_row, "quote": "全日制本科及以上学历在读"}], person, {})["requirements"][0]
+    expired = score([requirement_row], {**person, "assessment_year": 2028}, {})["requirements"][0]
+    assert full_time["status"] == expired["status"] == "pending_no_evidence"
+
+
+def test_explicit_prompt_practice_satisfies_basic_jd_but_not_years_or_expert_depth():
+    practice = [{"block_number": 5, "quote": "设计 Prompt V1-V3，完成原型的结构化输出评测"}]
+    rows = score([requirement("提示词工程", "ai"), requirement("提示词工程", "ai", quote="精通提示词工程"),
+                  requirement("提示词工程", "ai", kind="experience", quote="至少两年提示词工程经验")],
+                 {"practice": practice}, {})["requirements"]
+    assert [(row["status"], row["evidence_status"]) for row in rows] == [
+        ("matched", "resume_supported"), ("partial", "inferred"), ("partial", "inferred"),
+    ]
+
+
 def test_new_prd_evidence_increases_support_with_a_fixed_jd():
     sql = {"status": "self_reported", "level": "自述", "sources": [{"quote": "SQL"}]}
     prd_evidence = {"block_number": 1, "quote": "撰写产品需求文档，定义库存周转监控指标。"}
@@ -122,14 +148,37 @@ def test_new_prd_evidence_increases_support_with_a_fixed_jd():
     before = score(required, {"skills": {"sql": sql}}, {})
     after = score(required, {"skills": {"sql": sql}, "practice": [prd_evidence]}, {})
     assert (before["overall_score"], before["evidence_coverage"]) == (15, 18.75)
-    assert (after["overall_score"], after["evidence_coverage"]) == (30.63, 81.25)
+    assert (after["overall_score"], after["evidence_coverage"]) == (65, 81.25)
     missing = before["requirements"][2]
     assert missing["points"] == 0 and missing["status"] == "pending_not_provided"
     assert "若确实写过 PRD" in missing["resume_suggestion"]
     assert before["requirements"][1]["resume_suggestion"] == after["requirements"][1]["resume_suggestion"]
     assert after["requirements"][2]["sources"] == [prd_evidence]
-    no_hard_requirements = score([PREFERRED], {}, {})
-    assert no_hard_requirements["overall_score"] is None and no_hard_requirements["evidence_coverage"] is None
+    no_requirements = score([], {}, {})
+    assert no_requirements["overall_score"] is None and no_requirements["evidence_coverage"] is None
+
+
+def test_jobs_with_only_non_required_conditions_still_have_a_weighted_score():
+    optional = requirement("PRD", "product", "optional")
+    unknown = requirement("RAG", "ai", "unknown")
+    person = {"skills": {"python": {"status": "self_reported", "level": "自述", "sources": [{"quote": "Python"}]}}}
+    result = score([PREFERRED, optional, unknown], person, {})
+    assert (result["overall_score"], result["evidence_coverage"]) == (35.56, 44.44)
+    assert result["dimensions"]["data"] == {
+        "weight": 15, "effective_weight": 7.5, "score": 80, "required": 0, "total": 1, "rated": 1,
+    }
+    assert not result["hard_flags"]
+    missing = score([PREFERRED, optional, unknown], {}, {})
+    assert (missing["overall_score"], missing["evidence_coverage"]) == (0, 0)
+
+
+def test_preferred_evidence_cannot_clear_a_hard_requirement_conflict():
+    preferred = requirement("PRD", "product", "preferred")
+    person = {"practice": [{"block_number": 1, "quote": "编写产品需求文档"}]}
+    result = score([SQL, preferred], person, {0: "not_capable"})
+    assert result["overall_score"] == 36.36
+    assert [row["name"] for row in result["hard_flags"]] == ["SQL"]
+    assert result["verdict"] == "当前匹配较低，建议先补足关键能力"
 
 
 @pytest.mark.parametrize(("jd", "status"), [
@@ -254,7 +303,7 @@ def test_job_lifecycle(client, register_account, bearer_headers, monkeypatch):
     matched = client.post(url + "/match", headers=own, json=request)
     assert matched.status_code == 200, matched.text
     match = matched.json()
-    assert match["overall_score"] == 100
+    assert match["overall_score"] == 66.67 and match["scoring_version"] == "job-match-v8"
     assert match["resume"]["original_filename"] == "合成简历.pdf"
     assert match["resume"]["version"] == 1 and match["resume"]["content_id"] == content
     assert client.get(f"{API}/resumes/{match['resume']['resume_id']}/content",

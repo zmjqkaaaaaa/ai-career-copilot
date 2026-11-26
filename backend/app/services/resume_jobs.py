@@ -41,6 +41,8 @@ def start_job(db: Session, user_id: int, resume_id: int, kind: str,
             raise ApiError(409, "MODEL_DESTINATION_CHANGED", "模型服务地址已变化，请刷新核对后重新提交")
         content = require_content(db, resume.id, body.content_id)
         payload = {"content_id": content.id, "prompt_version": PROMPTS[kind].version, "provider": provider_fingerprint(settings)}
+        if kind == "analyze":
+            payload["evidence_rules"] = "practice-1"
         if kind == "extract":
             if content.structured_data is not None:
                 raise ApiError(409, "PARSE_REQUIRED", "重新提取前请先重新解析原文件")

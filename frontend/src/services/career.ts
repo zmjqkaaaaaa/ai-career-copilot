@@ -23,7 +23,7 @@ export type Job = {
   result_id: number | null; error_code: string | null
   scheduled_at: string; started_at: string | null; finished_at: string | null; worker_available?: boolean | null
 }
-export type EvidenceStatus = 'verified' | 'self_reported' | 'inferred' | 'unknown'
+export type EvidenceStatus = 'verified' | 'resume_supported' | 'self_reported' | 'inferred' | 'unknown'
 export type Point = { title: string; reason: string; sources: Anchor[] }
 export type Skill = { name: string; category: string; level: string; status: EvidenceStatus; reason: string; sources: Anchor[] }
 export type Analysis = { id: number; resume_id: number; content_id: number; target_direction: string; model_name: string; prompt_version: string; created_at: string }

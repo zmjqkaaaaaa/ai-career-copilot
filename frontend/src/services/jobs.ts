@@ -24,8 +24,8 @@ export type Match = {
   overall_score: number | null; evidence_coverage: number | null; scoring_version: string
   resume?: ResumeSource | null
   score_details: {
-    score_method?: 'fixed_evidence_weight'
-    dimensions: Record<string, { weight: number; score: number | null; required: number; rated: number }>
+    score_method?: 'fixed_evidence_weight' | 'priority_weighted_evidence'
+    dimensions: Record<string, { weight: number; effective_weight?: number; score: number | null; required: number; total?: number; rated: number }>
     requirements: Row[]; hard_flags: Row[]; verdict: string
   }
   recommendations: { generation_method?: 'local_fallback'; rationale: string; resume_focus: string[]; interview_focus: string[]; projects: string[]; next_steps: string[] } | null

@@ -7,7 +7,7 @@ const statusLabels: Record<string, string> = {
   matched: '符合', partial: '部分符合', unmet: '明确不符',
   pending_not_provided: '待核实 · 证据不足', pending_no_evidence: '待核实 · 条件未确认', pending_interview: '待面试核实',
 }
-const evidenceLabels: Record<string, string> = { verified: '已验证', self_reported: '用户自述', inferred: '间接证据，需核实', unknown: '缺少信息' }
+const evidenceLabels: Record<string, string> = { verified: '已通过测评', resume_supported: '简历原文支持', self_reported: '用户自述', inferred: '有相关经历', unknown: '材料缺少信息' }
 const dimensions: Record<string, string> = { education: '教育背景', product: '产品能力', ai: 'AI 技术', data: '编程与数据分析', practice: '项目实践', industry: '行业理解' }
 
 function Evidence({ row }: { row: Row }) {
@@ -16,7 +16,7 @@ function Evidence({ row }: { row: Row }) {
     <span className="badge">{statusLabels[row.status]}</span>
     <blockquote>JD 原文 · {row.quote}</blockquote>
     <p>{evidenceLabels[row.evidence_status]}
-      {row.importance === 'required' && row.points === 0 && row.status.startsWith('pending') && ' · 本项暂计 0 分'}</p>
+      {row.points === 0 && row.status.startsWith('pending') && row.importance === 'required' && ' · 本项暂计 0 分'}</p>
     {row.sources.map((item, index) => <blockquote key={index}>
       {item.block_number ? '简历原文 · 段落 ' + item.block_number : item.location || '参考材料'} · {item.quote}
     </blockquote>)}
@@ -34,6 +34,8 @@ export function JobReport({ match, gaps, adviceControls }: {
   const adviceHeading = useId()
   const { score_details: result } = match
   const fixedScore = result.score_method === 'fixed_evidence_weight'
+  const priorityScore = result.score_method === 'priority_weighted_evidence'
+  const softOnly = priorityScore && result.requirements.length > 0 && result.requirements.every((row) => row.importance !== 'required')
   const priorityOrder: Record<string, number> = { 高: 0, 中: 1, 低: 2 }
   const orderedGaps = [...gaps].sort((a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3) || a.ordinal - b.ordinal)
   const advice = match.recommendations
@@ -41,19 +43,25 @@ export function JobReport({ match, gaps, adviceControls }: {
   return <div className="grid gap-4">
     <section className="surface detail-panel">
       <h2>匹配报告</h2>
-      <p>{fixedScore ? '证据支持分' : '参考匹配分'} <strong>{match.overall_score === null ? '暂无可评分要求' : `${match.overall_score} / 100`}</strong></p>
-      <p>证据覆盖率 <strong>{match.evidence_coverage === null ? '暂无可评硬性要求' : `${match.evidence_coverage}%`}</strong></p>
-      <p className="panel-description">{fixedScore
-        ? '按本 JD 的全部硬性要求计算。证据不足的条目暂计 0 分，状态保留为待核实。'
-        : '旧版报告只按已评估的硬性要求计算。'} 计算规则 {match.scoring_version}</p>
+      <p>{(priorityScore && !softOnly) || fixedScore ? '证据支持分' : '参考匹配分'} <strong>{match.overall_score === null ? '暂无可评分要求' : `${match.overall_score} / 100`}</strong></p>
+      <p>证据覆盖率 <strong>{match.evidence_coverage === null ? (priorityScore ? '暂无可评分要求' : '暂无可评硬性要求') : `${match.evidence_coverage}%`}</strong></p>
+      <p className="panel-description">{priorityScore
+        ? '硬性要求、优先条件、加分项和重要性待确认项的相对权重为 100%、50%、25% 和 12.5%。缺少证据的项目暂计 0 分。'
+        : fixedScore ? '该版本的总分只计算 JD 的硬性要求。' : '旧版报告只按已评估的硬性要求计算。'} 计算规则 {match.scoring_version}</p>
       <p>本次使用的简历 {match.resume
         ? <Link className="text-brand underline" to={resumeVersionPath(match.resume)}>{match.resume.original_filename} · 第 {match.resume.version} 版</Link>
         : '暂时无法定位原简历版本'}</p>
       <p><strong>{result.verdict}</strong></p>
       {result.hard_flags.map((row) => <p key={row.ordinal}>硬性要求 · {row.name} · {row.evidence_status === 'inferred' ? '有间接证据，待核实' : statusLabels[row.status]}</p>)}
-      <dl className="career-grid">{Object.entries(result.dimensions).map(([key, value]) =>
-        <div className="career-detail" key={key}><dt>{dimensions[key]}（权重 {value.weight}%）</dt>
-          <dd>{value.required === 0 ? '本 JD 无硬性要求' : `${value.score ?? '待核实'} · 已评估 ${value.rated}/${value.required} 项`}</dd></div>)}</dl>
+      <dl className="career-grid">{Object.entries(result.dimensions).map(([key, value]) => {
+        const count = value.total ?? value.required
+        const weight = value.effective_weight ?? value.weight
+        return <div className="career-detail" key={key}>
+          <dt>{dimensions[key]}{count > 0 && `（计分权重 ${weight}）`}</dt>
+          <dd>{count === 0 ? priorityScore ? '本 JD 无相关条件' : '本 JD 无硬性要求'
+            : `${value.score ?? '待核实'} · 已评估 ${value.rated}/${count} 项${value.required === 0 ? ' · 非硬性条件' : ''}`}</dd>
+        </div>
+      })}</dl>
     </section>
     <section className="surface detail-panel">
       <h2>逐项匹配及加分项</h2>

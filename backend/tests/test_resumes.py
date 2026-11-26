@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 import subprocess
 import sys
@@ -7,15 +8,22 @@ import pytest
 from docx import Document
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfgen import canvas
 
-from app.ai.evidence import redact_blocks, validate_extraction
+from app.ai.evidence import redact_blocks, validate_analysis, validate_extraction
 from app.ai.prompts import EXTRACT
 from app.ai.provider import Provider
 from app.core.config import get_settings
 from app.core.errors import ApiError
+from app.db.session import session_factory
+from app.models.resume import Resume
 from app.resume_worker import run_once
-from app.schemas.career import StructuredResume
+from app.schemas.career import CareerResult, StructuredResume
+from app.services.job_matching_service import candidate, score
 from app.services.resume_parser import MAX_FILE_BYTES, parse_resume
+from job_cases import requirement
 from resume_fixtures import cases, write_case
 
 RESUMES = "/api/v1/resumes"
@@ -92,11 +100,13 @@ def test_docx_preserves_project_bullets_inside_nested_tables(tmp_path):
 
 
 def test_local_resume_draft_preserves_experiences_and_ownership(client, bearer_headers, workspace):
+    year = date.today().year
     document = Document()
     for paragraph in (
+        "教育经历", f"合成大学　硕士　信息工程　{year - 1}-{year + 2}",
         "实习经历", "模拟公司 产品实习 2025.01-2025.04", "负责需求梳理并输出两份报告", "跟踪异常案例",
         "第二公司 数据实习 2025.05-2025.08", "使用 SQL 验证库存",
-        "项目经历", "库存看板 2025.01-2025.06", "制作原型",
+        "项目经历", "库存看板 2025.01-2025.06", "制作原型", "技能能力", "SQL",
     ):
         document.add_paragraph(paragraph)
     stream = BytesIO()
@@ -127,9 +137,85 @@ def test_local_resume_draft_preserves_experiences_and_ownership(client, bearer_h
     assert len(draft["structured_data"]["internships"]) == 1
     assert len(draft["structured_data"]["projects"]) == 1
     assert all(block["number"] != internship["number"] for block in draft["model_blocks"])
+    draft_api = "/api/v1/profiles/me/resume-draft"
+    assert client.get(draft_api, headers=headers).json() is None
     confirmed = client.put(base + "/content", headers=headers, json={"content_id": draft["id"], "structured_data": draft["structured_data"]})
     assert confirmed.status_code == 200 and confirmed.json()["confirmed"]
+    prefill = client.get(draft_api, headers=headers)
+    assert prefill.status_code == 200, prefill.text
+    fields = prefill.json()["fields"]
+    assert prefill.json()["content_id"] == confirmed.json()["id"]
+    assert fields["graduate_school"] == "合成大学" and fields["graduate_major"] == "信息工程"
+    assert fields["graduation_year"] == year + 2 and fields["skills"] == ["SQL"]
+    assert fields["project_experience"][0]["title"].startswith("库存看板")
+    assert len(fields["internship_experience"]) == 1
+    assert client.get(draft_api, headers=bearer_headers()).json() is None
+    assert client.get("/api/v1/profiles/me", headers=headers).status_code == 404
     assert client.delete(base, headers=headers).status_code == 204
+
+
+def test_career_analysis_recovers_practice_omitted_by_the_model():
+    blocks = [{"number": 1, "location": "第 1 页", "section": "projects",
+               "text": "设计 Prompt V1-V3 并测试结构化输出。计划使用 SQL 核对库存。"}]
+    draft = CareerResult.model_validate({"summary": {"title": "合成材料", "reason": "模型未返回能力项"}})
+    skills = {item.name: item for item in validate_analysis(draft, blocks).skills}
+    assert skills["Prompt Engineering"].status == "resume_supported"
+    assert skills["Prompt Engineering"].sources[0].block_number == 1
+    assert skills["SQL"].status == "unknown"
+
+@pytest.mark.parametrize("file_type", ["pdf", "docx"])
+def test_design_portfolio_becomes_traceable_job_evidence(client, bearer_headers, workspace, file_type):
+    contribution = "个人贡献：负责用户访谈并梳理需求"
+    process = "设计过程：绘制交互原型并组织可用性测试"
+    proposed = "计划使用 SQL 核对留存数据"
+    cover = ["设计作品集", "案例一：仓库管理原型", contribution]
+    continuation = [process, proposed, "关于我", "使用 Figma"]
+    stream = BytesIO()
+    if file_type == "pdf":
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        pdf = canvas.Canvas(stream)
+        for page in (cover, continuation):
+            pdf.setFont("STSong-Light", 14)
+            for index, line in enumerate(page):
+                pdf.drawString(50, 790 - 25 * index, line)
+            pdf.showPage()
+        pdf.save()
+    else:
+        document = Document()
+        for line in [*cover[1:], *continuation]:
+            document.add_paragraph(line)
+        document.save(stream)
+
+    headers = bearer_headers()
+    name = "设计材料.pdf" if file_type == "pdf" else "交互设计作品集.docx"
+    created = client.post(f"{RESUMES}/upload", headers=headers, files={"file": (name, stream.getvalue())})
+    assert created.status_code == 201, created.text
+    resume_id = created.json()["id"]
+    base = f"{RESUMES}/{resume_id}"
+    assert client.post(base + "/parse", headers=headers).status_code == 202
+    assert run_once(local_only=True)
+    parsed = client.get(base + "/content", headers=headers).json()
+    project_blocks = [block for block in parsed["blocks"] if block["section"] == "projects"]
+    process_block = next(block for block in project_blocks if process in block["text"])
+    assert any(contribution in block["text"] for block in project_blocks)
+    if file_type == "pdf":
+        assert process_block["location"] == "第 2 页"
+    assert all("使用 Figma" not in block["text"] for block in project_blocks)
+    draft = client.post(base + "/local-draft", headers=headers, json={"content_id": parsed["id"], "hidden_blocks": []})
+    assert draft.status_code == 201, draft.text
+    confirmed = client.put(base + "/content", headers=headers, json={
+        "content_id": draft.json()["id"], "structured_data": draft.json()["structured_data"],
+    })
+    assert confirmed.status_code == 200, confirmed.text
+    with session_factory()() as db:
+        person = candidate(db, db.get(Resume, resume_id).user_id, confirmed.json()["id"], None)
+        result = score([requirement("用户研究", "product"), requirement("原型设计", "product"),
+                        requirement("SQL", "data")], person, {})
+    research, prototype, sql = result["requirements"]
+    assert contribution in research["sources"][0]["quote"]
+    assert prototype["sources"][0]["block_number"] == process_block["number"]
+    assert sql["status"] == "pending_not_provided" and not sql["sources"]
+
 
 def test_upload_validation_and_empty_pdf(client, bearer_headers, workspace):
     headers = bearer_headers()

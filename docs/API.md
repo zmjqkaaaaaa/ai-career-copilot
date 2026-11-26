@@ -103,6 +103,7 @@
 | DELETE /api/v1/auth/session | 浏览器来源和 CSRF 请求头 | 204，清除 Cookie |
 | GET /api/v1/users/me | Bearer 或 Cookie | 200，当前账户基本信息 |
 | GET /api/v1/profiles/me | Bearer 或 Cookie | 200，当前账号的档案 |
+| GET /api/v1/profiles/me/resume-draft | Bearer 或 Cookie | 200，最近确认材料的预填字段、教育原文和来源版本。没有已确认材料时返回 `null` |
 | PUT /api/v1/profiles/me | Bearer 或 Cookie，完整 JSON 档案。Cookie 写入需 CSRF 请求头 | 200，保存后的档案 |
 
 登录表单的 Content-Type 为 `application/x-www-form-urlencoded`。拿到 Bearer Token 的客户端在后续请求中传 `Authorization: Bearer <token>`。浏览器端会话入口用 `X-CSRF-Protection: 1`，并校验浏览器发出的 `Origin`。账户和档案读写响应使用 `Cache-Control: no-store`。

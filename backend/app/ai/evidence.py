@@ -3,8 +3,9 @@ import json
 import re
 
 from app.core.errors import ApiError
-from app.schemas.career import Anchor, AssessedSkill, CareerResult, Fact, OptimizationItem, SKILLS, StructuredResume
+from app.schemas.career import Anchor, CareerResult, Fact, GroundedCareerResult, GroundedSkill, OptimizationItem, SKILLS, StructuredResume
 from app.services.resume_sections import ENTRY_SECTIONS
+from app.services.practice_evidence import find_practice
 
 EMAIL = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.I)
 PHONE = re.compile(r"(?<!\d)(?:\+?86[ -]?)?1[3-9]\d(?:[ -]?\d){8}(?!\d)|(?<!\d)(?:\+\d{1,3}[ -])?\(?\d{3}\)?[ -]\d{3}[ -]\d{4}(?!\d)")
@@ -91,7 +92,7 @@ def facts_for_model(facts: dict) -> dict:
         for group, items in facts.items()
     }
 
-def validate_analysis(report: CareerResult, blocks: list[dict]) -> CareerResult:
+def validate_analysis(report: CareerResult, blocks: list[dict]) -> GroundedCareerResult:
     lookup = lookup_blocks(blocks)
     report.summary.sources = [source for source in report.summary.sources if anchor_exists(source, lookup)]
     if not report.summary.sources:
@@ -103,6 +104,8 @@ def validate_analysis(report: CareerResult, blocks: list[dict]) -> CareerResult:
         if category in ("education", "project_practice", "strengths"):
             setattr(report, category, [point for point in items if point.sources])
 
+    project_quotes = [{"block_number": block["number"], "quote": block["text"]}
+                      for block in blocks if block.get("section") in {"projects", "internships", "other_experiences"}]
     assessments = {}
     for skill in report.skills:
         matches = [source for source in skill.sources if anchor_exists(source, lookup)]
@@ -111,11 +114,16 @@ def validate_analysis(report: CareerResult, blocks: list[dict]) -> CareerResult:
         status = skill.status
         if status == "self_reported" and not any(skill.name.casefold() in source.quote.casefold() for source in matches):
             status = "inferred"
-        assessments.setdefault(skill.name, skill.model_copy(update={"status": status, "sources": matches}))
-    report.skills = [assessments.get(name) or AssessedSkill(
+        assessments.setdefault(skill.name, GroundedSkill.model_validate(
+            {**skill.model_dump(), "status": status, "sources": matches}))
+    for name in SKILLS:
+        if sources := find_practice(name, project_quotes):
+            assessments[name] = GroundedSkill(name=name, level="有实践迹象", status="resume_supported",
+                                              reason="简历项目或经历中写明了相关行动。", sources=sources)
+    skills = [assessments.get(name) or GroundedSkill(
         name=name, level="未评估", status="unknown", reason="当前简历没有足够的可核对证据。",
     ) for name in SKILLS]
-    return report
+    return GroundedCareerResult.model_validate({**report.model_dump(exclude={"skills"}), "skills": skills})
 
 def validate_optimizations(items: list[OptimizationItem], blocks: list[dict]) -> list[OptimizationItem]:
     lookup = lookup_blocks(blocks)

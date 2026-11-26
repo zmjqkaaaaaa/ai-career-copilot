@@ -34,3 +34,11 @@ class ProfileRead(ProfileWrite):
     id: int
     created_at: datetime
     updated_at: datetime
+
+class ProfileResumeDraft(BaseModel):
+    resume_id: int
+    content_id: int
+    filename: str
+    version: int
+    education: list[str]
+    fields: ProfileWrite

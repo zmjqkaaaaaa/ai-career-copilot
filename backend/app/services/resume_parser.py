@@ -11,7 +11,7 @@ from app.core.errors import ApiError
 from app.services.pdf_text_encoding import restore_gb1_text_mapping
 from app.services.resume_sections import split_section_blocks
 
-PARSER_VERSION = "4"
+PARSER_VERSION = "6"
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_TEXT_CHARS = 30_000
 MAX_PDF_PAGES = 20
@@ -104,14 +104,15 @@ def docx_sections(stream):
             for paragraph in split_blocks(element.text):
                 yield f"段落 {index}", paragraph
 
-def parse_resume(path: Path, file_type: str, *, identify_sections=True) -> list[dict]:
+def parse_resume(path: Path, file_type: str, *, identify_sections=True, original_filename="") -> list[dict]:
     try:
         with path.open("rb") as stream:
             validate_file(stream, file_type)
             sections = pdf_sections(stream) if file_type == "pdf" else docx_sections(stream)
             blocks = []
             size = 0
-            parts = split_section_blocks(sections) if identify_sections else ((location, text, None) for location, text in sections)
+            parts = (split_section_blocks(sections, original_filename=original_filename) if identify_sections
+                     else ((location, text, None) for location, text in sections))
             for location, value, section in parts:
                 value = value.replace("\x00", "")
                 size += len(value)

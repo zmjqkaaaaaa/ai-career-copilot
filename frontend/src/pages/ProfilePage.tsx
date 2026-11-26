@@ -1,9 +1,10 @@
 import { Feedback } from '../components/common/Feedback'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import type { FormEvent } from 'react'
 import { useAuth } from '../hooks/AuthProvider'
 import { errorMessage } from '../services/api'
-import type { Experience, ProfileInput } from '../services/profile'
+import { profileApi, type Experience, type ProfileInput, type ResumeDraft } from '../services/profile'
 
 const identityFields = [
   ['real_name', '姓名', 100],
@@ -105,17 +106,63 @@ function ProfileForm({ initial, save }: { initial: ProfileInput | null; save: (i
   )
 }
 
+function mergeDraft(saved: ProfileInput | null, draft: ProfileInput): ProfileInput {
+  if (!saved) return draft
+  return {
+    ...saved,
+    undergraduate_school: saved.undergraduate_school ?? draft.undergraduate_school,
+    undergraduate_major: saved.undergraduate_major ?? draft.undergraduate_major,
+    undergraduate_degree: saved.undergraduate_degree ?? draft.undergraduate_degree,
+    graduate_school: saved.graduate_school ?? draft.graduate_school,
+    graduate_major: saved.graduate_major ?? draft.graduate_major,
+    graduation_year: saved.graduation_year ?? draft.graduation_year,
+    skills: saved.skills.length ? saved.skills : draft.skills,
+    internship_experience: saved.internship_experience.length ? saved.internship_experience : draft.internship_experience,
+    project_experience: saved.project_experience.length ? saved.project_experience : draft.project_experience,
+  }
+}
+
 export function ProfilePage() {
-  const { profile, reloadProfile, saveProfile } = useAuth()
+  const { account, profile, reloadProfile, saveProfile } = useAuth()
+  const userId = account?.id
+  const [resume, setResume] = useState<{ userId: number; draft: ResumeDraft | null; error?: string }>()
+  const [draftCheck, setDraftCheck] = useState(0)
+  useEffect(() => {
+    if (userId === undefined) return
+    const controller = new AbortController()
+    profileApi.resumeDraft(controller.signal).then((draft) => {
+      if (!controller.signal.aborted) setResume({ userId, draft })
+    }).catch((failure: unknown) => {
+      if (!controller.signal.aborted) setResume({ userId, draft: null, error: errorMessage(failure) })
+    })
+    return () => controller.abort()
+  }, [userId, draftCheck])
+  const resumeState = resume?.userId === userId ? resume : undefined
+  const draft = resumeState?.draft
+  const saved = profile.state === 'ready' ? profile.data : null
 
   return (
     <section className="surface profile-card" aria-labelledby="profile-title">
       <h1 id="profile-title">个人档案</h1>
       {profile.state === 'loading' && <Feedback kind="loading">正在读取档案…</Feedback>}
       {profile.state === 'error' && <Feedback kind="error" retry={reloadProfile}>{profile.message}</Feedback>}
-      {profile.state === 'missing' && <Feedback kind="empty">尚未创建档案。填写你想记录的信息即可保存。</Feedback>}
-      {(profile.state === 'missing' || profile.state === 'ready') &&
-        <ProfileForm initial={profile.state === 'ready' ? profile.data : null} save={saveProfile} />}
+      {!resumeState && profile.state !== 'error' && <Feedback kind="loading">正在读取已确认的简历…</Feedback>}
+      {resumeState?.error && <Feedback kind="error" retry={() => {
+        setResume(undefined)
+        setDraftCheck((value) => value + 1)
+      }}>{resumeState.error}</Feedback>}
+      {draft && <div className="career-detail">
+        <p>已从 <Link className="text-brand underline" to={`/career-profile?resume=${draft.resume_id}&content=${draft.content_id}`}>
+          {draft.filename} · 第 {draft.version} 版</Link> 带入可识别的空白字段。核对后点击「保存档案」即可。</p>
+        {draft.education.length > 0 && <details><summary>查看简历教育经历</summary>
+          {draft.education.map((quote, index) => <p className="whitespace-pre-wrap" key={index}>{quote}</p>)}
+        </details>}
+      </div>}
+      {resumeState && !draft && !resumeState.error && profile.state === 'missing' && <Feedback kind="empty">
+        <Link className="text-brand underline" to="/career-profile">在职业画像确认一份简历</Link> 后可自动带入，也可直接填写。
+      </Feedback>}
+      {resumeState && (profile.state === 'missing' || profile.state === 'ready') &&
+        <ProfileForm key={`${userId}-${draft?.content_id ?? 'manual'}`} initial={draft ? mergeDraft(saved, draft.fields) : saved} save={saveProfile} />}
     </section>
   )
 }

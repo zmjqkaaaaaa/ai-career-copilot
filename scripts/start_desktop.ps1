@@ -37,7 +37,14 @@ function Wait-Service($name, [scriptblock]$probe) {
     throw "$name did not start. Check the logs in $logs."
 }
 
-function Test-Worker($checkOption) {
+function Test-Worker($checkOption, $workerOption) {
+    $workerProcess = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
+        $_.CommandLine -like "*$python*" -and $_.CommandLine -match '\s-m\s+app\.resume_worker(?:\s|$)' -and
+        ($_.CommandLine -match "(?:\s|^)$workerOption(?:\s|$)" -or
+         $_.CommandLine -notmatch '\s--(?:resume-only|job-only|strategy-only|maintenance-only|check-resume-worker|check-job-worker)(?:\s|$)')
+    } | Select-Object -First 1
+    # A stopped worker's heartbeat remains fresh briefly after a restart.
+    if (-not $workerProcess) { return $false }
     Push-Location $backend
     try {
         & $python -m app.resume_worker $checkOption *> $null
@@ -63,13 +70,13 @@ try {
         Start-ServiceProcess 'api' $python '-m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8001' $backend
         Wait-Service 'API' { Test-Page $apiUrl '"status"\s*:\s*"ok"' }
     }
-    if (-not (Test-Worker '--check-resume-worker')) {
+    if (-not (Test-Worker '--check-resume-worker' '--resume-only')) {
         Start-ServiceProcess 'resume-worker' $python '-m app.resume_worker --resume-only --approved-host dashscope.aliyuncs.com' $backend
-        Wait-Service 'Resume worker' { Test-Worker '--check-resume-worker' }
+        Wait-Service 'Resume worker' { Test-Worker '--check-resume-worker' '--resume-only' }
     }
-    if (-not (Test-Worker '--check-job-worker')) {
+    if (-not (Test-Worker '--check-job-worker' '--job-only')) {
         Start-ServiceProcess 'job-worker' $python '-m app.resume_worker --job-only --approved-host dashscope.aliyuncs.com' $backend
-        Wait-Service 'Job matching worker' { Test-Worker '--check-job-worker' }
+        Wait-Service 'Job matching worker' { Test-Worker '--check-job-worker' '--job-only' }
     }
     if (-not (Test-Page $homeUrl 'AI Career Copilot')) {
         Start-ServiceProcess 'frontend' $env:ComSpec '/d /c npm.cmd run dev' (Join-Path $project 'frontend')

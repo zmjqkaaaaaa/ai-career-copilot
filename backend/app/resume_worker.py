@@ -66,7 +66,7 @@ def compute(factory, task: Task, provider_factory):
         storage_key, file_type = resume.storage_key, resume.file_type
         source = db.get(ResumeContent, task.payload["content_id"]) if task.kind != "parse" else None
     if task.kind == "parse":
-        return parse_resume(storage_path(storage_key), file_type)
+        return parse_resume(storage_path(storage_key), file_type, original_filename=resume.original_filename)
     if source is None or source.resume_id != task.resume_id:
         raise ApiError(404, "RESUME_CONTENT_NOT_FOUND", "简历内容不存在")
 
