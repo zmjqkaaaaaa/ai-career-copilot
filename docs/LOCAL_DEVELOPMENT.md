@@ -2,6 +2,8 @@
 
 [返回产品首页](../README.md) · [技术架构](ARCHITECTURE.md) · [产品作品集](stage11/PORTFOLIO.md)
 
+[功能示例导读](examples/README.md) 说明竞品研究、模拟面试、SQL 学习与代码教学示例各验证了什么。
+
 ## 历史阶段验收
 
 - [系统审计与前九阶段完成度](SYSTEM_AUDIT.md) 汇总初始问题、后续修复证据和当前试用门槛。[架构与工作流](ARCHITECTURE.md) [跨模块数据衔接](CROSS_MODULE_WORKFLOW.md)

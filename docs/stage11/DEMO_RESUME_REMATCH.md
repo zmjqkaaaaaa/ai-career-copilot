@@ -24,7 +24,7 @@
 4. **补写一处经历并确认新版。** 在合成案例的库存看板项目补写「撰写产品需求文档，定义库存周转监控指标」，将修改后的 DOCX 上传并确认。[修改后的项目段落](demo-resume-rematch/screenshots/07-confirm-edited-resume.png)
 5. **用同一份 JD 复查。** 返回原岗位，选择新版简历并重新匹配。核对 PRD 引用的新原文，确认其余条目如何变化。可以通过历史记录分别打开两份报告。[修改后逐项证据](demo-resume-rematch/screenshots/09-after-evidence.png) · [历史报告](demo-resume-rematch/screenshots/10-match-history.png)
 
-## 面试时怎么讲
+## 评分规则为什么调整
 
 初版演示补上 PRD 证据后，参考分从 80 降到 45.62，暴露出一个比较口径问题。旧版只平均已有证据的条目，因此加进一条低于原平均值的证据就会拉低分数。
 
