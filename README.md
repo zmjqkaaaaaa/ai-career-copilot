@@ -29,6 +29,15 @@
 
 **个人实测：33.21 → 76.09 分。** 我在原简历上补写了 Codex 使用与改进案例、试用中发现的体验问题，再用同一份 JD 复查。两版使用同一评分规则，原版为本地复算，新版为实际页面报告。分数衡量简历对这份 JD 的证据支持程度。[看完整个人案例](docs/stage11/PERSONAL_RESUME_REMATCH.md)
 
+## 验证材料
+
+| 材料 | 可以看到什么 |
+| --- | --- |
+| [公开评测集](docs/stage11/AI_EVALUATION.md#公开评测集) | 完整合成样本、预期判定、检查规则和离线复跑方式。 |
+| [Badcase 分析](docs/stage11/BADCASE_ANALYSIS.md) | 简历解析和匹配出错时的表现、根因、修复及复测证据。 |
+| [用户试用记录](docs/stage11/USER_TRIAL_RECAP.md) · [后续反馈](docs/stage11/USER_TRIAL_FOLLOWUP.md) | 匿名试用中的卡点、对应产品决策和验证情况。 |
+| [评分规则的版本迭代](docs/JOB_MATCHING.md#评分规则的版本迭代) | 从逐项引用、固定分母到识别真实改动，每个版本解决的问题。 |
+
 ## 技术栈
 
 React · TypeScript · FastAPI · Python · MySQL · LLM 结构化提取与 Python 规则评分

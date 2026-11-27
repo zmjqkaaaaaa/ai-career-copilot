@@ -13,6 +13,16 @@
 
 真模型基线来自 [第十阶段质量报告](../AI_EVALUATION.md)。本轮运行了离线评测。历史真实调用与本轮固定响应的结果各自比较。评测工具和检查项可核对 [评测入口](../../backend/app/services/ai_evaluation_service.py)、[样本](../../backend/app/evaluations/cases.py) 和 [判定规则](../../backend/app/evaluations/checks.py)。
 
+## 公开评测集
+
+| 评测集 | 包含什么 | 完整样本与运行入口 |
+| --- | --- | --- |
+| 跨模块 AI 质量 | 12 个合成场景。每个场景带期望证据和通过条件，支持正例、故意错误回复和损坏响应三类离线检查。 | [完整样本及对照构造](../../backend/app/evaluations/cases.py) · [检查规则](../../backend/app/evaluations/checks.py) · [运行工具](../../backend/app/services/ai_evaluation_service.py) |
+| 简历解析 | 10 份合成简历的原材料和预期事实。支持生成 PDF 或 DOCX。 | [完整样本 JSON](../../backend/tests/fixtures/resume_cases.json) · [生成样本](../../backend/tests/resume_fixtures.py) · [解析回归](../../backend/tests/test_resumes.py) |
+| 岗位匹配 | 10 组基础合成用例，包含 JD 要求、候选人证据、人工标记、预期参考分与证据覆盖率。实际模型评测脚本从这些条目生成合成 JD。 | [完整基础用例](../../backend/tests/job_cases.py) · [专项回归](../../backend/tests/test_jobs.py) · [模型评测脚本](../../backend/tests/evaluate_job_model.py) |
+
+样本覆盖范围有重合，各集分别统计。真实试用见[匿名试用记录](USER_TRIAL_RECAP.md)，逐项失败与修复见[Badcase 分析](BADCASE_ANALYSIS.md)。
+
 ## 首轮问题优先级
 
 | 优先级 | 历史失败 | 下轮验证 |
