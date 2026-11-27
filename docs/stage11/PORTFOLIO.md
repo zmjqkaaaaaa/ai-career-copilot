@@ -6,23 +6,13 @@
 
 ## 推荐阅读与展示顺序
 
-1. [面试演示 PPTX](PROJECT_PRESENTATION.pptx) · 15 页，可编辑。
-2. [完整产品案例](PROJECT_CASE_STUDY.md) · 问题来源、竞品依据、MVP 取舍和质量验证。
-3. [个人实测：同一份 JD 修改简历并复查](PERSONAL_RESUME_REMATCH.md) · 从建议、修改到复查，解释同分问题和产品迭代。[合成账号演示](DEMO_RESUME_REMATCH.md) · [新一轮用户反馈](USER_TRIAL_FOLLOWUP.md) · [约四分钟产品演示脚本](DEMO_SCRIPT.md)
-4. [GitHub 项目说明](README.md) · 页面截图、架构、安装、迁移和测试。
-5. [三版简历条目](RESUME_PROJECT_EXPERIENCE.md) · 分别面向 AI 产品、AI Agent 产品和 AI 应用产品。
-6. [PRD](PRD.md) · [设计方案](PRODUCT_DESIGN.md) · [技术架构](SYSTEM_ARCHITECTURE.md) · [评测证据](AI_EVALUATION.md)
-7. [三套面试讲稿](INTERVIEW_PITCHES.md) · 面向 HR、产品经理和技术产品经理的 30 秒、2 分钟与 5 分钟版本。[面试题库](INTERVIEW_QUESTIONS.md) · 105 道深度题、代码定位和评分报告。
+1. [个人实测：同一份 JD 修改简历并复查](PERSONAL_RESUME_REMATCH.md) · 从两版同分到定位漏判、修复并复查。
+2. [产品演示：合成账号](DEMO_RESUME_REMATCH.md) · 用三步截图看清简历修改前后的证据变化。
+3. [完整产品案例](PROJECT_CASE_STUDY.md) · 问题来源、竞品依据、MVP 取舍和质量验证。[用户反馈与迭代](USER_TRIAL_FOLLOWUP.md)
+4. [项目展示 PPTX](PROJECT_PRESENTATION.pptx) · 15 页产品与技术复盘。
+5. [PRD](PRD.md) · [设计方案](PRODUCT_DESIGN.md) · [技术架构](SYSTEM_ARCHITECTURE.md) · [评测证据](AI_EVALUATION.md) · [开发与验收](../LOCAL_DEVELOPMENT.md)
 
-## 面向实习面试的讲述重点
-
-| 面试方向 | 适合展开的内容 |
-| --- | --- |
-| AI 产品 | 如何从一次投递失败提出问题，选择首批用户和最小任务，设计可观察的复查指标 |
-| AI Agent 产品 | 如何把需求拆成可验证的步骤，明确用户确认、工具边界、任务状态和回退。项目实现是固定工作流，可用来分析何时才有理由引入自主 Agent |
-| AI 应用或智能硬件产品 | 如何把实际场景、用户问题、证据和验收标准连起来，讲清真实表现、未知项和后续验证。适用于讨论大疆等企业关注的产品实践场景，作品没有使用企业内部资料 |
-
-## 可以出示的证据
+## 验证证据
 
 - 当前项目的真实页面、产品需求、工作流和代码入口可直接查阅。
 - 我用真实简历完成了一次「初次匹配、修改、同一 JD 复查」。同规则对比中，原版本地复算为 33.21，新版在页面获得 76.09。[个人实测记录](PERSONAL_RESUME_REMATCH.md)

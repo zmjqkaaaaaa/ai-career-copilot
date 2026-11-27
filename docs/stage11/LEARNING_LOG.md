@@ -36,7 +36,7 @@
 
 - [学习入口](CODE_LEARNING_GUIDE.md) 提供八模块知识地图和自主学习顺序。
 - [Python 后端](PYTHON_BACKEND_GUIDE.md)、[FastAPI](FASTAPI_GUIDE.md)、[LLM 应用](LLM_APPLICATION_GUIDE.md) 和 [数据库](SQL_DATABASE_GUIDE.md) 讲解八个实际业务模块。
-- [练习](CODE_EXERCISES.md) 与 [参考答案](CODE_EXERCISES_ANSWERS.md) 按编号分别保存，共 120 组。[技术面试问题](CODE_INTERVIEW_QUESTIONS.md) 包含八组口述追问。
+- [代码练习](CODE_EXERCISES.md) 与[代码练习答案](CODE_EXERCISES_ANSWERS.md)按编号分别保存，共 120 组。八组技术口述追问已归入个人练习材料。
 
 校验了八份文档的链接与锚点、17 段源码节录、120 题与答案的配对和每组题型数量。SQL 示例在内存测试表上通过，包括过滤不同 JD 修订和其他账号。专项测试 16 项通过，覆盖合成简历解析、模型无效响应、评测契约和面试评分边界。
 
@@ -54,6 +54,6 @@
 
 ## 11.8 · 项目深度面试准备
 
-2026 年 11 月 22 日完成训练材料。[项目面试入口](INTERVIEW_QUESTIONS.md) 汇集五类 105 道题和 [逐题答案](INTERVIEW_ANSWERS.md)。[项目介绍](PROJECT_INTRODUCTION.md) 提供 1、3、5 分钟版本。[代码定位清单](CODE_REFERENCE_MAP.md) 对应 25 道技术题。[项目掌握度报告](PROJECT_MASTERY_REPORT.md) 提供五维 100 分评分与十项实际验收。
+2026 年 11 月 22 日完成训练材料，包括五类 105 道题、参考答案、项目介绍、代码定位清单和掌握度评分表。个人练习材料随后移至本地归档。
 
 验收逐题匹配了题号和七项答案字段，共 735 项。核对 25 条代码映射、18 对 OpenAPI 方法与路径、194 处本地引用以及评分总权重。作品集已加入训练入口。个人尚无本轮独立作答，总分和面试通过情况均待实测。

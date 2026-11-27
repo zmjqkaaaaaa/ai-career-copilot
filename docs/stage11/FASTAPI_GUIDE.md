@@ -56,7 +56,6 @@ def upload_resume(file: Annotated[UploadFile, File()], user: CurrentUser, db: Da
 
 文件名和浏览器声明类型都可能有误，所以还要看内容签名和文档结构。将解析任务与 AI 提取分开后，用户可以看到和选择要发送的范围。常见异常为 413 超上限、415 不支持或扩展名不符、无文字层、加密 PDF、损坏文档、文件丢失，以及重复任务或版本冲突。无文字层时可改用含文字的文件，当前解析不含 OCR。
 
-### 面试、练习和参考答案
+### 代码练习
 
-- [技术面试 · 文件上传](CODE_INTERVIEW_QUESTIONS.md#文件上传)
 - [练习 M02](CODE_EXERCISES.md#m02-文件上传) · [独立核对答案](CODE_EXERCISES_ANSWERS.md#m02-文件上传)

@@ -61,7 +61,6 @@ ORDER BY m.id DESC
 LIMIT 10;
 ```
 
-### 面试、练习和参考答案
+### 代码练习
 
-- [技术面试 · 数据库](CODE_INTERVIEW_QUESTIONS.md#数据库)
 - [练习 M08](CODE_EXERCISES.md#m08-数据库) · [独立核对答案](CODE_EXERCISES_ANSWERS.md#m08-数据库)

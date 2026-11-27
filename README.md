@@ -4,12 +4,14 @@
 
 面向准备 AI 产品经理实习的学生，逐条对照简历和岗位描述（JD），找出优先补写的经历，改完用同一份 JD 复查。
 
+**合成账号演示 · 15.00 → 30.63 分**
+
 | 找到差距 | 补一段经历 | 用同一 JD 复查 |
 | :---: | :---: | :---: |
 | **15.00 分** · 缺少需求文档证据 | **补写** · 撰写产品需求文档（PRD），定义库存周转指标 | **30.63 分** · 引用新增原文 |
 | [<img src="docs/stage11/demo-resume-rematch/screenshots/05-before-score.png" width="250" alt="修改前报告，PRD 缺少证据，得 15 分">](docs/stage11/demo-resume-rematch/screenshots/05-before-score.png) | [<img src="docs/stage11/demo-resume-rematch/screenshots/07-confirm-edited-resume.png" width="120" alt="新版简历确认页，库存看板项目补写了 PRD 与指标">](docs/stage11/demo-resume-rematch/screenshots/07-confirm-edited-resume.png) | [<img src="docs/stage11/demo-resume-rematch/screenshots/08-after-score.png" width="250" alt="同一岗位修改后报告，PRD 有间接证据，得 30.63 分">](docs/stage11/demo-resume-rematch/screenshots/08-after-score.png) |
 
-三张图来自合成账号的历史演示，点击可放大。[查看演示步骤](docs/stage11/DEMO_RESUME_REMATCH.md)
+点击截图可放大。[查看演示步骤](docs/stage11/DEMO_RESUME_REMATCH.md)
 
 ## 我解决的问题
 
@@ -31,4 +33,4 @@
 
 React · TypeScript · FastAPI · Python · MySQL · LLM 结构化提取与 Python 规则评分
 
-[完整作品集](docs/stage11/PORTFOLIO.md) · [三套面试讲稿](docs/stage11/INTERVIEW_PITCHES.md) · [开发与验收文档](docs/LOCAL_DEVELOPMENT.md)
+[完整作品集](docs/stage11/PORTFOLIO.md) · [开发与验收文档](docs/LOCAL_DEVELOPMENT.md)
